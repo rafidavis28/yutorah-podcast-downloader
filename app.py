@@ -23,6 +23,7 @@ from download_podcasts import (
     session
 )
 import google_drive_auth as gd
+import streamlit_cookies_manager as cookies
 
 # Configuration file for RSS feeds
 FEEDS_CONFIG_FILE = 'rss_feeds.json'
@@ -100,6 +101,17 @@ def main():
         page_icon="🎧",
         layout="wide"
     )
+
+    # Initialize cookie manager for persistent authentication
+    cookie_manager = cookies.CookieManager()
+    gd.set_cookie_manager(cookie_manager)
+
+    # Wait for cookie manager to be ready
+    if not cookie_manager.ready():
+        st.stop()
+
+    # Initialize authentication from cookies
+    gd.init_auth_from_cookies()
 
     st.title("🎧 YUTorah Podcast Downloader")
     st.markdown("Download shiurim from YUTorah RSS feeds")
