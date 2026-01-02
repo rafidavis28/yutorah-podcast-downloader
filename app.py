@@ -30,7 +30,7 @@ FEEDS_CONFIG_FILE = 'rss_feeds.json'
 
 # Default feeds
 DEFAULT_FEEDS = {
-    "Rabbi Moshe Weinberger": "https://www.yutorah.org/search/rss?q=&f=teacherid:80208,teacherishidden:0&s=shiurdate%20desc",
+    "Rav Moshe Taragin": "http://www.yutorah.org/rss/RssAudioOnly/teacher/80307",
 }
 
 

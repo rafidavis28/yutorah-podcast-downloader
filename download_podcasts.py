@@ -26,7 +26,7 @@ YUTORAH_USERNAME = st.secrets["YUTORAH_USERNAME"]  # Add your YUTorah username h
 YUTORAH_PASSWORD = st.secrets["YUTORAH_PASSWORD"]  # Add your YUTorah password here
 
 # Default RSS feed URL
-DEFAULT_RSS_URL = "https://www.yutorah.org/search/rss?q=&f=teacherid:80208,teacherishidden:0&s=shiurdate%20desc"
+DEFAULT_RSS_URL = "http://www.yutorah.org/rss/RssAudioOnly/teacher/80307"
 
 # Session for maintaining login state
 session = requests.Session()
