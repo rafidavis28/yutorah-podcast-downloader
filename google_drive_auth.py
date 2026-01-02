@@ -18,6 +18,20 @@ import json
 # Google OAuth2 settings
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
+# Cookie manager will be set by app.py
+_cookie_manager = None
+
+
+def set_cookie_manager(cookie_manager):
+    """
+    Set the cookie manager for persistent authentication.
+
+    Args:
+        cookie_manager: streamlit_cookies_manager.CookieManager instance
+    """
+    global _cookie_manager
+    _cookie_manager = cookie_manager
+
 # OAuth credentials - these should be set in Streamlit secrets
 # To get these:
 # 1. Go to https://console.cloud.google.com/
@@ -82,6 +96,43 @@ def get_auth_url():
     return auth_url
 
 
+def load_credentials_from_cookies():
+    """
+    Load credentials from cookies if available.
+
+    Returns:
+        Credentials dict or None
+    """
+    if _cookie_manager is None:
+        return None
+
+    try:
+        creds_json = _cookie_manager.get('google_credentials')
+        if creds_json:
+            return json.loads(creds_json)
+    except Exception as e:
+        print(f"Error loading credentials from cookies: {e}")
+
+    return None
+
+
+def save_credentials_to_cookies(credentials_dict):
+    """
+    Save credentials to cookies for persistence.
+
+    Args:
+        credentials_dict: Dictionary representation of credentials
+    """
+    if _cookie_manager is None:
+        return
+
+    try:
+        _cookie_manager['google_credentials'] = json.dumps(credentials_dict)
+        _cookie_manager.save()
+    except Exception as e:
+        print(f"Error saving credentials to cookies: {e}")
+
+
 def handle_oauth_callback(auth_code):
     """
     Handle the OAuth callback and exchange code for credentials.
@@ -101,8 +152,12 @@ def handle_oauth_callback(auth_code):
         credentials = flow.credentials
 
         # Store credentials in session state
-        st.session_state.google_credentials = credentials_to_dict(credentials)
+        creds_dict = credentials_to_dict(credentials)
+        st.session_state.google_credentials = creds_dict
         st.session_state.google_authenticated = True
+
+        # Save to cookies for persistence
+        save_credentials_to_cookies(creds_dict)
 
         return credentials
     except Exception as e:
@@ -304,6 +359,22 @@ def upload_file_to_drive(file_content, filename, folder_id=None, mime_type='audi
         return None
 
 
+def init_auth_from_cookies():
+    """
+    Initialize authentication from cookies if available.
+    Call this at app startup to restore saved login state.
+    """
+    # Check if already authenticated in session
+    if st.session_state.get('google_authenticated', False):
+        return
+
+    # Try to load from cookies
+    creds_dict = load_credentials_from_cookies()
+    if creds_dict:
+        st.session_state.google_credentials = creds_dict
+        st.session_state.google_authenticated = True
+
+
 def is_authenticated():
     """
     Check if user is authenticated with Google Drive.
@@ -311,16 +382,33 @@ def is_authenticated():
     Returns:
         Boolean indicating authentication status
     """
+    # First check session state
+    if st.session_state.get('google_authenticated', False):
+        return True
+
+    # If not in session, try to restore from cookies
+    init_auth_from_cookies()
+
     return st.session_state.get('google_authenticated', False)
 
 
 def sign_out():
     """
-    Sign out from Google Drive.
+    Sign out from Google Drive and clear cookies.
     """
+    # Clear session state
     if 'google_credentials' in st.session_state:
         del st.session_state.google_credentials
     if 'google_authenticated' in st.session_state:
         del st.session_state.google_authenticated
     if 'oauth_state' in st.session_state:
         del st.session_state.oauth_state
+
+    # Clear cookies
+    if _cookie_manager is not None:
+        try:
+            if 'google_credentials' in _cookie_manager:
+                del _cookie_manager['google_credentials']
+            _cookie_manager.save()
+        except Exception as e:
+            print(f"Error clearing cookies: {e}")
