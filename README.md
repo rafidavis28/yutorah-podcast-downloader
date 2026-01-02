@@ -5,6 +5,7 @@ A Python application to download podcast episodes from YUTorah RSS feeds with bo
 ## Features
 
 - 🎧 Downloads MP3 files from YUTorah RSS feeds
+- ☁️ **Google Drive Integration** - Save podcasts directly to your Google Drive
 - 🔐 Handles both public and login-required episodes
 - 📊 Tracks downloaded shiurim to avoid re-downloading
 - 🌐 Web interface built with Streamlit
@@ -12,6 +13,7 @@ A Python application to download podcast episodes from YUTorah RSS feeds with bo
 - 📈 Progress tracking and detailed logging
 - ⚡ Customizable download limits and delays
 - 🎯 Command-line interface for automation
+- 👤 Per-user authentication - each visitor can use their own Google Drive
 
 ## Installation
 
@@ -24,12 +26,36 @@ pip install -r requirements.txt
 
 ## Configuration
 
-If you need to download login-required episodes, edit `download_podcasts.py` and add your credentials:
+### YUTorah Credentials (For Streamlit App)
 
-```python
-YUTORAH_USERNAME = "your_username"
-YUTORAH_PASSWORD = "your_password"
-```
+For the web interface, add your YUTorah credentials to Streamlit secrets:
+
+**Streamlit Cloud:**
+- Go to your app settings → Secrets
+- Add `YUTORAH_USERNAME` and `YUTORAH_PASSWORD`
+
+**Local Development:**
+- Create `.streamlit/secrets.toml`
+- Add your credentials (see `GOOGLE_DRIVE_SETUP.md`)
+
+### Google Drive Integration (Web Interface Only)
+
+The web interface supports uploading podcasts directly to your Google Drive! Each user signs in with their own Google account.
+
+**Setup Instructions:** See [GOOGLE_DRIVE_SETUP.md](GOOGLE_DRIVE_SETUP.md) for detailed setup instructions.
+
+**Quick Setup:**
+1. Create a Google Cloud project
+2. Enable Google Drive API
+3. Create OAuth 2.0 credentials
+4. Add credentials to Streamlit secrets
+5. Users sign in with Google when using the app
+
+**Benefits:**
+- Files go directly to each user's Google Drive
+- No storage needed on Streamlit servers
+- Users control their own files
+- Automatic folder organization
 
 ## Usage
 

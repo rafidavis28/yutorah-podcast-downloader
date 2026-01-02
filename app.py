@@ -22,6 +22,7 @@ from download_podcasts import (
     sanitize_filename,
     session
 )
+import google_drive_auth as gd
 
 # Configuration file for RSS feeds
 FEEDS_CONFIG_FILE = 'rss_feeds.json'
@@ -30,6 +31,47 @@ FEEDS_CONFIG_FILE = 'rss_feeds.json'
 DEFAULT_FEEDS = {
     "Rabbi Moshe Weinberger": "https://www.yutorah.org/search/rss?q=&f=teacherid:80208,teacherishidden:0&s=shiurdate%20desc",
 }
+
+
+def download_and_upload_to_drive(mp3_url, title, folder_id):
+    """
+    Download MP3 file and upload to Google Drive.
+
+    Args:
+        mp3_url: URL of the MP3 file
+        title: Title of the episode
+        folder_id: Google Drive folder ID to upload to
+
+    Returns:
+        Dictionary with file info or None
+    """
+    try:
+        # Sanitize filename
+        filename = sanitize_filename(title) + '.mp3'
+
+        # Download the file content
+        response = session.get(mp3_url, stream=True)
+        response.raise_for_status()
+
+        # Read content into memory
+        file_content = b''
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                file_content += chunk
+
+        # Upload to Google Drive
+        file_info = gd.upload_file_to_drive(
+            file_content,
+            filename,
+            folder_id=folder_id,
+            mime_type='audio/mpeg'
+        )
+
+        return file_info
+
+    except Exception as e:
+        st.error(f"Error downloading/uploading {title}: {e}")
+        return None
 
 
 def load_feeds_config():
@@ -73,6 +115,40 @@ def main():
     # Sidebar for configuration
     with st.sidebar:
         st.header("⚙️ Settings")
+
+        # Google Drive Authentication
+        st.subheader("☁️ Google Drive")
+
+        # Handle OAuth callback
+        query_params = st.query_params
+        if 'code' in query_params:
+            auth_code = query_params['code']
+            gd.handle_oauth_callback(auth_code)
+            # Clear query params
+            st.query_params.clear()
+            st.rerun()
+
+        if gd.is_authenticated():
+            user_info = gd.get_user_info()
+            if user_info:
+                st.success(f"✅ Signed in as: {user_info.get('emailAddress', 'Unknown')}")
+            else:
+                st.success("✅ Signed in to Google Drive")
+
+            if st.button("🚪 Sign Out", use_container_width=True):
+                gd.sign_out()
+                st.rerun()
+        else:
+            st.warning("⚠️ Not signed in to Google Drive")
+            st.caption("Sign in to download podcasts to your Google Drive")
+
+            auth_url = gd.get_auth_url()
+            if auth_url:
+                st.link_button("🔐 Sign in with Google", auth_url, use_container_width=True)
+            else:
+                st.error("Google OAuth not configured. Please contact administrator.")
+
+        st.divider()
 
         # Load feeds
         feeds = load_feeds_config()
@@ -120,17 +196,39 @@ def main():
 
         # Download settings
         st.subheader("Download Settings")
-        output_base_dir = st.text_input(
-            "Base Output Directory",
-            value="downloads",
-            help="Base directory where feed subfolders will be created"
-        )
 
-        use_subfolders = st.checkbox(
-            "Use feed-specific subfolders",
-            value=True,
-            help="Create a subfolder for each feed"
-        )
+        if gd.is_authenticated():
+            st.info("📂 Files will be saved to your Google Drive")
+
+            drive_base_folder = st.text_input(
+                "Google Drive Folder",
+                value="YUTorah Podcasts",
+                help="Main folder in Google Drive for podcasts"
+            )
+
+            use_subfolders = st.checkbox(
+                "Use feed-specific subfolders",
+                value=True,
+                help="Create a subfolder for each feed"
+            )
+        else:
+            st.warning("⚠️ Files will be saved to Streamlit server (not recommended)")
+            st.caption("Please sign in to Google Drive to save files to your account")
+
+            output_base_dir = st.text_input(
+                "Base Output Directory",
+                value="downloads",
+                help="Base directory where feed subfolders will be created",
+                disabled=True
+            )
+
+            use_subfolders = st.checkbox(
+                "Use feed-specific subfolders",
+                value=True,
+                help="Create a subfolder for each feed"
+            )
+
+            drive_base_folder = None
 
         delay = st.slider(
             "Delay Between Downloads (seconds)",
@@ -271,16 +369,38 @@ def main():
 
         # Download button
         if st.button(f"⬇️ Download Selected Episodes ({selected_count})", type="primary", use_container_width=True, disabled=selected_count == 0):
-            # Determine output directory
-            if use_subfolders:
-                # Sanitize feed name for folder
-                safe_feed_name = sanitize_filename(feed_name)
-                output_dir = Path(output_base_dir) / safe_feed_name
-            else:
-                output_dir = Path(output_base_dir)
+            # Check if user is authenticated
+            if not gd.is_authenticated():
+                st.error("❌ Please sign in to Google Drive first!")
+                st.stop()
 
-            output_dir.mkdir(parents=True, exist_ok=True)
-            st.info(f"📁 Downloading to: `{output_dir}`")
+            # Set up Google Drive folders
+            base_folder_id = None
+            target_folder_id = None
+
+            if drive_base_folder:
+                # Create or find base folder
+                base_folder_id = gd.find_or_create_folder(drive_base_folder)
+                if not base_folder_id:
+                    st.error("Failed to create/find base folder in Google Drive")
+                    st.stop()
+
+                if use_subfolders:
+                    # Create or find feed-specific subfolder
+                    safe_feed_name = sanitize_filename(feed_name)
+                    target_folder_id = gd.find_or_create_folder(safe_feed_name, base_folder_id)
+                else:
+                    target_folder_id = base_folder_id
+            else:
+                # No base folder, use root
+                if use_subfolders:
+                    safe_feed_name = sanitize_filename(feed_name)
+                    target_folder_id = gd.find_or_create_folder(safe_feed_name)
+
+            if use_subfolders:
+                st.info(f"📁 Uploading to Google Drive: `{drive_base_folder}/{sanitize_filename(feed_name)}`")
+            else:
+                st.info(f"📁 Uploading to Google Drive: `{drive_base_folder or 'Root'}`")
 
             # Progress tracking
             progress_bar = st.progress(0)
@@ -321,9 +441,13 @@ def main():
                         else:
                             st.write(f"**MP3 URL:** {mp3_url}")
 
-                            # Download
-                            if download_mp3(mp3_url, title, str(output_dir)):
-                                st.success("✅ Downloaded successfully")
+                            # Upload to Google Drive
+                            file_info = download_and_upload_to_drive(mp3_url, title, target_folder_id)
+
+                            if file_info:
+                                st.success(f"✅ Uploaded to Google Drive: {file_info.get('name', title)}")
+                                if 'webViewLink' in file_info:
+                                    st.caption(f"[Open in Drive]({file_info['webViewLink']})")
                                 successful += 1
 
                                 # Mark as downloaded
@@ -332,7 +456,7 @@ def main():
                                     downloaded_shiurim.add(shiur_id)
                                     save_downloaded_shiurim(db_file, downloaded_shiurim)
                             else:
-                                st.error("❌ Download failed")
+                                st.error("❌ Upload failed")
                                 failed += 1
 
                 # Delay between requests
@@ -341,10 +465,10 @@ def main():
 
             # Summary
             progress_bar.progress(1.0)
-            status_text.text("Download complete!")
+            status_text.text("Upload complete!")
 
             st.divider()
-            st.success("✅ Download Complete!")
+            st.success("✅ Upload to Google Drive Complete!")
 
             col1, col2, col3, col4 = st.columns(4)
             with col1:
