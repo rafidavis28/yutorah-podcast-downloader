@@ -180,9 +180,9 @@ The web interface stores RSS feed configurations in `rss_feeds.json`, allowing y
 
 ## Default RSS Feed
 
-The default RSS feed is configured for Rabbi Moshe Weinberger's shiurim:
+The default RSS feed is configured for Rav Moshe Taragin's shiurim:
 ```
-https://www.yutorah.org/search/rss?q=&f=teacherid:80208,teacherishidden:0&s=shiurdate%20desc
+http://www.yutorah.org/rss/RssAudioOnly/teacher/80307
 ```
 
 You can change this by using the `--rss-url` parameter or editing the `DEFAULT_RSS_URL` in the script.
