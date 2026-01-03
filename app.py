@@ -422,7 +422,6 @@ def main():
             # Download selected episodes
             successful = 0
             failed = 0
-            skipped = 0
 
             selected_episodes = [
                 (i, ep) for i, ep in enumerate(st.session_state.new_episodes)
@@ -440,17 +439,16 @@ def main():
                         if shiur_id:
                             st.write(f"**Shiur ID:** {shiur_id}")
 
-                        # Get MP3 URL
-                        mp3_url, requires_login = get_mp3_url_from_page(page_url)
+                        # Get MP3 URL from page data
+                        episode_data = get_mp3_url_from_page(page_url)
 
-                        if not mp3_url:
-                            if requires_login:
-                                st.warning("⚠️ Skipped: Requires login")
-                                skipped += 1
-                            else:
-                                st.error("❌ Failed: Could not find MP3 download link")
-                                failed += 1
+                        if not episode_data or not episode_data.get('downloadURL'):
+                            st.error("❌ Failed: Could not find MP3 download link")
+                            failed += 1
                         else:
+                            mp3_url = episode_data['downloadURL']
+                            if episode_data.get('duration'):
+                                st.write(f"**Duration:** {episode_data['duration']}")
                             st.write(f"**MP3 URL:** {mp3_url}")
 
                             # Upload to Google Drive
@@ -482,15 +480,13 @@ def main():
             st.divider()
             st.success("✅ Upload to Google Drive Complete!")
 
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total", len(selected_episodes))
             with col2:
                 st.metric("Successful", successful, delta=successful, delta_color="normal")
             with col3:
                 st.metric("Failed", failed, delta=failed if failed > 0 else None, delta_color="inverse")
-            with col4:
-                st.metric("Skipped", skipped, delta=skipped if skipped > 0 else None, delta_color="off")
 
             # Clear the selection after download
             st.session_state.new_episodes = []

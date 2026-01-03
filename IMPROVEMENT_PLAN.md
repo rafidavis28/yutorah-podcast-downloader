@@ -6,60 +6,55 @@ Your tool has two interfaces:
 - **Web UI (Streamlit)**: Interactive episode selection + Google Drive upload
 - **CLI**: Automation-friendly local downloads
 
-Authentication is used in two places:
-1. **YUTorah Login**: Only for "download-disabled" episodes (uses your credentials)
-2. **Google Drive OAuth**: Per-user, already properly isolated
+Authentication:
+- **YUTorah Login**: ✅ **NO LONGER REQUIRED** (removed in Jan 2026)
+- **Google Drive OAuth**: Per-user, properly isolated
 
 ---
 
-## Priority 1: Address YUTorah Login Dependency
+## ✅ COMPLETED: Login Dependency Removed (January 2026)
 
-### Investigation Findings (January 2026)
+### Key Discovery
 
-**RSS Feed Analysis:**
-- ❌ YUTorah RSS feeds do **NOT** contain `<enclosure>` tags with direct MP3 URLs
-- RSS only provides: `<title>`, `<link>` (to episode page), `<author>`, `<description>`, `<pubDate>`
-- Page scraping is **required** to obtain MP3 download URLs
+Episode pages contain a `lecturePlayerData` JavaScript object with full download URLs,
+and this data is **publicly accessible without authentication**!
 
-**Authentication Reality:**
-- YUTorah allows downloads for all **logged-in users** (no premium tiers)
-- Episode pages show "download-disabled" class when not logged in
-- Login is required to see/access the download link on the page
-- The actual MP3 file URLs (once obtained) may not require cookies
+```javascript
+var lecturePlayerData = {
+  "downloadURL": "https://download.yutorah.org/2025/4505/1152550/...",
+  "playerDownloadURL": "https://shiurim.yutorah.net/2025/4505/1152550.MP3",
+  "shiurDuration": "19min 36s",
+  "shiurMediaLengthInSeconds": 1176,
+  "shiurTitle": "...",
+  ...
+}
+```
 
-### Recommended Approach
+### What Was Implemented
 
-Since page scraping requires login, and you're currently using your credentials for all users:
+1. **Removed all YUTorah login code** - No credentials needed
+2. **JSON-based URL extraction** - Parse `lecturePlayerData` from page HTML
+3. **Duration display** - Shows episode length before downloading
+4. **Simpler codebase** - Removed ~60 lines of login/auth code
 
-#### 1A. Per-User YUTorah Authentication (Recommended)
-Similar to the Google Drive OAuth pattern:
-- Add optional YUTorah username/password fields in the web UI sidebar
-- Store credentials in session state (not cookies for security)
-- Each user provides their own YUTorah login
-- Falls back to app-level credentials if user doesn't provide theirs
-- Clear messaging: "Enter your YUTorah login to download episodes"
+### How It Works Now
 
-**Benefits:**
-- Users use their own accounts
-- You're not sharing your credentials
-- More sustainable for wider sharing
+```
+RSS Feed → Episode Page URL → Fetch Page (no auth) → Parse JSON → Download MP3
+```
 
-#### 1B. Graceful Degradation Mode
-- Add "Skip Login-Required Episodes" toggle
-- When enabled: skip episodes requiring login without error
-- Log skipped episodes for user awareness
-- Useful when credentials aren't available
+The MP3 URLs at `download.yutorah.org` are publicly accessible.
 
-#### 1C. Test MP3 URL Direct Access
-Once you have an MP3 URL (after logging in once):
-- Test if the URL works in an incognito browser
-- If yes: MP3 download doesn't need session cookies
-- Could cache MP3 URLs for faster subsequent access
+### URL Pattern Discovered
 
-### What Won't Work
-- ❌ Direct MP3 URL construction (no predictable pattern found)
-- ❌ RSS enclosure parsing (YUTorah doesn't provide them)
-- ❌ Unauthenticated episode page access (shows disabled download)
+```
+https://download.yutorah.org/{YEAR}/{SPEAKER_CDN_ID}/{SHIUR_ID}/{sanitized-title}.mp3
+```
+
+| Speaker | CDN ID | RSS Teacher ID |
+|---------|--------|----------------|
+| Rabbi Moshe Taragin | 4505 | 80307 |
+| Rabbi Shay Schachter | 21648 | - |
 
 ---
 
