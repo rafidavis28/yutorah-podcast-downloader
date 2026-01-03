@@ -71,13 +71,18 @@ def extract_shiur_id(page_url):
     """
     Extract shiur ID from the episode page URL.
 
+    Handles multiple URL formats:
+    - https://www.yutorah.org/lectures/details?shiurID=1159876
+    - https://www.yutorah.org/lectures/1160274/
+    - https://www.yutorah.org/lectures/lecture.cfm/1160032
+
     Args:
         page_url: URL of the episode page
 
     Returns:
         Shiur ID as string, or None if not found
     """
-    # URL format: https://www.yutorah.org/lectures/details?shiurID=1159876
+    # Format 1: Query parameter - ?shiurID=1159876
     try:
         parsed = urlparse(page_url)
         params = parse_qs(parsed.query)
@@ -86,7 +91,13 @@ def extract_shiur_id(page_url):
     except:
         pass
 
-    # Try regex as fallback
+    # Format 2: In path - /lectures/1160274/ or /lectures/lecture.cfm/1160032
+    # Look for a sequence of digits in the path
+    match = re.search(r'/lectures/(?:lecture\.cfm/|details/)?(\d+)', page_url)
+    if match:
+        return match.group(1)
+
+    # Format 3: shiurID in path or query (legacy fallback)
     match = re.search(r'shiurID[=:](\d+)', page_url)
     if match:
         return match.group(1)
