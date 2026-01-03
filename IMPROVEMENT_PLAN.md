@@ -12,47 +12,54 @@ Authentication is used in two places:
 
 ---
 
-## Priority 1: Remove/Reduce YUTorah Login Dependency
+## Priority 1: Address YUTorah Login Dependency
 
-### Issue Analysis
-Currently, when an episode page has `class="download-disabled"`, the tool attempts login. However:
-- Most episodes appear to be publicly accessible
-- Download pages have direct URLs (e.g., `yutorah.org/lectures/lecture.cfm?shiurID=XXXX`)
-- The MP3 URLs themselves may be directly accessible without session cookies
+### Investigation Findings (January 2026)
 
-### Proposed Improvements
+**RSS Feed Analysis:**
+- ❌ YUTorah RSS feeds do **NOT** contain `<enclosure>` tags with direct MP3 URLs
+- RSS only provides: `<title>`, `<link>` (to episode page), `<author>`, `<description>`, `<pubDate>`
+- Page scraping is **required** to obtain MP3 download URLs
 
-#### 1A. Direct MP3 URL Construction
-Investigate if MP3 URLs follow a predictable pattern:
-```
-https://download.yutorah.org/XXXX/filename.mp3
-```
-If the pattern is consistent, you could:
-- Extract the shiur ID from the RSS feed
-- Construct the download URL directly
-- Skip the page scraping entirely for public episodes
+**Authentication Reality:**
+- YUTorah allows downloads for all **logged-in users** (no premium tiers)
+- Episode pages show "download-disabled" class when not logged in
+- Login is required to see/access the download link on the page
+- The actual MP3 file URLs (once obtained) may not require cookies
 
-#### 1B. RSS Feed Direct Links
-The RSS feed likely contains `<enclosure>` tags with direct MP3 URLs. Currently you're:
-1. Getting episode page URL from RSS
-2. Scraping the page for the download link
+### Recommended Approach
 
-Instead:
-- Parse `<enclosure url="...">` directly from RSS XML
-- Many podcast RSS feeds include the actual MP3 URL here
-- This would eliminate page scraping entirely for most episodes
+Since page scraping requires login, and you're currently using your credentials for all users:
 
-#### 1C. Graceful Degradation
-For truly restricted episodes:
-- Add a "skip restricted" mode (no login attempt)
-- Log which episodes were skipped for manual review
-- Consider if restricted episodes are even needed
+#### 1A. Per-User YUTorah Authentication (Recommended)
+Similar to the Google Drive OAuth pattern:
+- Add optional YUTorah username/password fields in the web UI sidebar
+- Store credentials in session state (not cookies for security)
+- Each user provides their own YUTorah login
+- Falls back to app-level credentials if user doesn't provide theirs
+- Clear messaging: "Enter your YUTorah login to download episodes"
 
-#### 1D. Session-Free Download Test
-Test if MP3 URLs work without any session:
-- The actual download server (`download.yutorah.org`) may not check cookies
-- Only the episode page might require login to *display* the link
-- Once you have the URL, the download itself may be unrestricted
+**Benefits:**
+- Users use their own accounts
+- You're not sharing your credentials
+- More sustainable for wider sharing
+
+#### 1B. Graceful Degradation Mode
+- Add "Skip Login-Required Episodes" toggle
+- When enabled: skip episodes requiring login without error
+- Log skipped episodes for user awareness
+- Useful when credentials aren't available
+
+#### 1C. Test MP3 URL Direct Access
+Once you have an MP3 URL (after logging in once):
+- Test if the URL works in an incognito browser
+- If yes: MP3 download doesn't need session cookies
+- Could cache MP3 URLs for faster subsequent access
+
+### What Won't Work
+- ❌ Direct MP3 URL construction (no predictable pattern found)
+- ❌ RSS enclosure parsing (YUTorah doesn't provide them)
+- ❌ Unauthenticated episode page access (shows disabled download)
 
 ---
 
@@ -250,56 +257,53 @@ Configurable naming:
 
 ## Quick Wins (Low Effort, High Value)
 
-1. **Check RSS `<enclosure>` for direct MP3 URLs** - Could eliminate login need entirely
-2. **Add episode duration/size to UI** - Better user experience
-3. **JSON output for CLI** - Enables scripting/automation
-4. **Configurable filename template** - Simple but useful
-5. **Feed health check command** - Verify feeds are still valid
+1. **Per-user YUTorah credentials in UI** - Each user enters their own login
+2. **"Skip restricted" toggle** - Graceful degradation when no credentials
+3. **Add episode duration/size to UI** - Better user experience (if available in RSS)
+4. **JSON output for CLI** - Enables scripting/automation
+5. **Configurable filename template** - Simple but useful
 
 ---
 
-## Investigation Needed
+## Investigation Completed (January 2026)
 
-Before implementing, test these assumptions:
+| Question | Answer |
+|----------|--------|
+| Do RSS feeds have `<enclosure>` tags? | ❌ No - only episode page links |
+| What makes episodes "download-disabled"? | Not logged in (all users can download when logged in) |
+| Are there other API endpoints? | ❌ No - RSS only |
 
-1. **Do YUTorah RSS feeds include `<enclosure>` tags with MP3 URLs?**
-   - If yes: Major simplification possible
+### Still To Test (requires external access)
 
-2. **Are MP3 download URLs accessible without session cookies?**
-   - If yes: Login truly not needed for most cases
-
-3. **What makes an episode "download-disabled"?**
-   - Premium content?
-   - Time-limited availability?
-   - Certain speakers/series?
-
-4. **Are there API endpoints besides RSS?**
-   - YUTorah may have undocumented APIs
-   - Could enable better search/discovery
+1. **Are MP3 download URLs accessible without session cookies?**
+   - Get an MP3 URL while logged in
+   - Try accessing it in incognito/different browser
+   - If yes: Could cache URLs to avoid repeated logins
 
 ---
 
 ## Recommended Implementation Order
 
-### Phase 1: Remove Login Dependency
-1. Investigate RSS enclosure tags
-2. Test direct MP3 URL access
-3. Implement graceful degradation for restricted content
+### Phase 1: Address Login Concern (Immediate)
+1. Add per-user YUTorah credentials option in web UI
+2. Add "Skip login-required episodes" toggle
+3. Test if MP3 URLs work without session (manual test)
+4. If MP3 URLs are sessionless: add URL caching for speed
 
 ### Phase 2: Core Enhancements
-4. ID3 tag support
-5. Filename templates
-6. Better duplicate detection
+5. ID3 tag support
+6. Filename templates
+7. Better duplicate detection
 
 ### Phase 3: Automation
-7. Cron-friendly CLI improvements
-8. Scheduling support
-9. Notification system
+8. Cron-friendly CLI improvements (JSON output, exit codes)
+9. Scheduling support
+10. Notification system
 
-### Phase 4: Extended Features
-10. Additional cloud storage
-11. OPML import/export
+### Phase 4: Extended Features (If Needed)
+11. Additional cloud storage backends
 12. Search functionality
+13. Feed discovery by speaker name
 
 ---
 
