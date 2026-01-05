@@ -505,7 +505,19 @@ def main():
                                 if 'webViewLink' in file_info:
                                     st.caption(f"[Open in Drive]({file_info['webViewLink']})")
                                 successful += 1
-                                st.caption(f"✓ Shiur {actual_shiur_id} tracked in file metadata")
+
+                                # Mark as downloaded - prefer shiurID from JSON data (more reliable)
+                                actual_shiur_id = episode_data.get('shiurID')
+                                if actual_shiur_id:
+                                    actual_shiur_id = str(actual_shiur_id)  # Convert to string for consistency
+                                else:
+                                    actual_shiur_id = shiur_id  # Fallback to URL-extracted ID
+
+                                if actual_shiur_id:
+                                    downloaded_shiurim = load_downloaded_shiurim(db_file)
+                                    downloaded_shiurim.add(actual_shiur_id)
+                                    save_downloaded_shiurim(db_file, downloaded_shiurim)
+                                    st.caption(f"✓ Marked shiur {actual_shiur_id} as downloaded")
                             else:
                                 st.error("❌ Upload failed")
                                 failed += 1

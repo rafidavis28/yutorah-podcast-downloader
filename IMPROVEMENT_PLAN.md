@@ -1,46 +1,76 @@
-# YUTorah Podcast Downloader - Feature Ideas
+# YUTorah Podcast Downloader - Improvement Plan
 
-This document tracks potential future enhancements for the YUTorah podcast downloader.
+## Current State Summary
 
-## Current State (January 2026)
-
-The tool is fully functional with:
+Your tool has two interfaces:
 - **Web UI (Streamlit)**: Interactive episode selection + Google Drive upload
 - **CLI**: Automation-friendly local downloads
-- **No login required**: Downloads work without YUTorah authentication
-- **Google Drive tracking**: Duplicate detection based on file metadata in Drive
 
-### Technical Implementation
+Authentication:
+- **YUTorah Login**: ✅ **NO LONGER REQUIRED** (removed in Jan 2026)
+- **Google Drive OAuth**: Per-user, properly isolated
 
-Episode pages contain a `lecturePlayerData` JavaScript object with download URLs:
+---
+
+## ✅ COMPLETED: Login Dependency Removed (January 2026)
+
+### Key Discovery
+
+Episode pages contain a `lecturePlayerData` JavaScript object with full download URLs,
+and this data is **publicly accessible without authentication**!
+
 ```javascript
 var lecturePlayerData = {
   "downloadURL": "https://download.yutorah.org/2025/4505/1152550/...",
+  "playerDownloadURL": "https://shiurim.yutorah.net/2025/4505/1152550.MP3",
   "shiurDuration": "19min 36s",
-  "shiurID": "1152550",
+  "shiurMediaLengthInSeconds": 1176,
+  "shiurTitle": "...",
   ...
 }
 ```
 
-MP3 URL pattern: `https://download.yutorah.org/{YEAR}/{SPEAKER_CDN_ID}/{SHIUR_ID}/{title}.mp3`
+### What Was Implemented
+
+1. **Removed all YUTorah login code** - No credentials needed
+2. **JSON-based URL extraction** - Parse `lecturePlayerData` from page HTML
+3. **Duration display** - Shows episode length before downloading
+4. **Simpler codebase** - Removed ~60 lines of login/auth code
+
+### How It Works Now
+
+```
+RSS Feed → Episode Page URL → Fetch Page (no auth) → Parse JSON → Download MP3
+```
+
+The MP3 URLs at `download.yutorah.org` are publicly accessible.
+
+### URL Pattern Discovered
+
+```
+https://download.yutorah.org/{YEAR}/{SPEAKER_CDN_ID}/{SHIUR_ID}/{sanitized-title}.mp3
+```
+
+| Speaker | CDN ID | RSS Teacher ID |
+|---------|--------|----------------|
+| Rabbi Moshe Taragin | 4505 | 80307 |
+| Rabbi Shay Schachter | 21648 | - |
 
 ---
 
-## Future Ideas
+## Priority 2: Enhanced Feed Management
 
-### 1. Enhanced Feed Management
-
-**OPML Import/Export**
+### 2A. OPML Import/Export
 - Import feeds from other podcast apps via OPML
 - Export your feed list for backup/sharing
 - Standard format for podcast subscriptions
 
-**Feed Discovery**
+### 2B. Feed Discovery
 - Search YUTorah by speaker name → auto-generate RSS URL
 - YUTorah has predictable RSS URL patterns: `/rss/RssAudioOnly/teacher/XXXXX`
 - Could add a "Find Speaker" feature that searches their site
 
-**Feed Metadata Storage**
+### 2C. Feed Metadata Storage
 Store more than just the URL:
 ```json
 {
@@ -57,42 +87,42 @@ Store more than just the URL:
 }
 ```
 
-**Feed Categories/Tags**
+### 2D. Feed Categories/Tags
 - Group feeds by topic (Parsha, Gemara, Halacha, etc.)
 - Filter views by category
 - Useful when managing many speakers
 
 ---
 
-### 2. Download & Sync Improvements
+## Priority 3: Download & Sync Improvements
 
-**Smarter Duplicate Detection**
+### 3A. Smarter Duplicate Detection
 Current: Track shiur IDs only
 Improved:
 - Also track by content hash (handles re-uploads)
 - Track file size to detect incomplete downloads
 - Option to re-download if file was deleted from Drive
 
-**Download Resumption**
+### 3B. Download Resumption
 - For large files, support resumable downloads
 - Track partial downloads and continue from where left off
 - HTTP Range headers for continuation
 
-**Batch Download Optimization**
+### 3C. Batch Download Optimization
 - Parallel downloads (configurable concurrency)
 - Connection pooling for faster throughput
 - Progress indication with ETA
 
-**Sync Status Dashboard**
+### 3D. Sync Status Dashboard
 - Show which episodes are: downloaded, pending, skipped, failed
 - Per-feed statistics
 - Last sync timestamp per feed
 
 ---
 
-### 3. Metadata & Organization
+## Priority 4: Metadata & Organization
 
-**ID3 Tag Enhancement**
+### 4A. ID3 Tag Enhancement
 Add proper MP3 metadata:
 - Title (from RSS)
 - Artist (speaker name)
@@ -103,7 +133,7 @@ Add proper MP3 metadata:
 
 This makes files searchable and properly organized in music apps.
 
-**Filename Templates**
+### 4B. Filename Templates
 Configurable naming:
 ```
 {date} - {title}.mp3
@@ -111,7 +141,7 @@ Configurable naming:
 {shiur_id} - {title}.mp3
 ```
 
-**Folder Organization Options**
+### 4C. Folder Organization Options
 - By speaker
 - By date (Year/Month)
 - By series/topic
@@ -119,101 +149,101 @@ Configurable naming:
 
 ---
 
-### 4. Scheduling & Automation
+## Priority 5: Scheduling & Automation
 
-**Background Sync Service**
+### 5A. Background Sync Service
 - Run as a background daemon
 - Check feeds on configurable schedule
 - Auto-download new episodes
 
-**Cron-Friendly Mode**
+### 5B. Cron-Friendly Mode
 - Exit codes for success/failure/no-new-episodes
 - JSON output mode for scripting
 - Quiet mode (errors only)
 
-**Webhook/Notification Support**
+### 5C. Webhook/Notification Support
 - Notify on new downloads (email, Pushover, webhook)
 - Daily digest of new episodes
 - Error notifications
 
 ---
 
-### 5. Alternative Storage Backends
+## Priority 6: Alternative Storage Backends
 
-**Local + Cloud Hybrid**
+### 6A. Local + Cloud Hybrid
 - Download locally first, then upload to cloud
 - Keep local cache for quick access
 - Configurable retention (delete local after X days)
 
-**Additional Cloud Providers**
+### 6B. Additional Cloud Providers
 - Dropbox integration
 - OneDrive integration
 - S3/MinIO for self-hosted
 - Nextcloud/ownCloud
 
-**Podcast App Integration**
+### 6C. Podcast App Integration
 - Generate local RSS feed pointing to downloaded files
 - Self-host a mini podcast server
 - Compatible with Pocket Casts, Overcast, etc.
 
 ---
 
-### 6. User Experience Improvements
+## Priority 7: User Experience Improvements
 
-**Episode Preview**
+### 7A. Episode Preview
 - Show episode description/summary from RSS
 - Display duration before downloading
 - Show file size estimate
 
-**Search Within Feeds**
+### 7B. Search Within Feeds
 - Search episode titles
 - Filter by date range
 - Find episodes by keyword
 
-**Playback Integration**
+### 7C. Playback Integration
 - Audio player in web UI
 - Listen before deciding to download
 - Mark as "listened" vs "downloaded"
 
-**Mobile-Friendly UI**
+### 7D. Mobile-Friendly UI
 - Responsive design for phone/tablet
 - PWA support for home screen install
 - Touch-friendly controls
 
 ---
 
-### 7. Reliability & Monitoring
+## Priority 8: Reliability & Monitoring
 
-**Retry Logic Improvement**
+### 8A. Retry Logic Improvement
 - Exponential backoff for failures
 - Configurable retry count
 - Different strategies for different error types
 
-**Rate Limiting Respect**
+### 8B. Rate Limiting Respect
 - Detect and respect rate limits
 - Automatic throttling when needed
 - Configurable download speed limits
 
-**Health Monitoring**
+### 8C. Health Monitoring
 - Track success/failure rates
 - Alert on repeated failures
 - Feed URL validity checking
 
-**Logging Improvements**
+### 8D. Logging Improvements
 - Structured logging (JSON)
 - Log rotation
 - Debug mode for troubleshooting
 
 ---
 
-### 8. Data Portability
+## Priority 9: Data Portability
 
-**Export Formats**
+### 9A. Export Formats
 - Export download history as CSV/JSON
 - Export feed configurations
 - Backup entire app state
 
-**Import Capabilities**
+### 9B. Import Capabilities
 - Import from other podcast apps
 - Migrate from different instances
 - Bulk feed addition
@@ -222,17 +252,62 @@ Configurable naming:
 
 ## Quick Wins (Low Effort, High Value)
 
-1. ✅ ~~Per-user YUTorah credentials~~ - No longer needed (public access works)
-2. ✅ ~~Episode duration display~~ - Implemented
-3. **JSON output for CLI** - Enables scripting/automation
-4. **Configurable filename template** - Simple but useful
+1. **Per-user YUTorah credentials in UI** - Each user enters their own login
+2. **"Skip restricted" toggle** - Graceful degradation when no credentials
+3. **Add episode duration/size to UI** - Better user experience (if available in RSS)
+4. **JSON output for CLI** - Enables scripting/automation
+5. **Configurable filename template** - Simple but useful
 
 ---
 
-## Architecture Notes
+## Investigation Completed (January 2026)
 
-For wider distribution:
-- **Containerization**: Add Docker Compose for easy deployment
-- **Configuration**: Environment variables for flexibility
+| Question | Answer |
+|----------|--------|
+| Do RSS feeds have `<enclosure>` tags? | ❌ No - only episode page links |
+| What makes episodes "download-disabled"? | Not logged in (all users can download when logged in) |
+| Are there other API endpoints? | ❌ No - RSS only |
+
+### Still To Test (requires external access)
+
+1. **Are MP3 download URLs accessible without session cookies?**
+   - Get an MP3 URL while logged in
+   - Try accessing it in incognito/different browser
+   - If yes: Could cache URLs to avoid repeated logins
+
+---
+
+## Recommended Implementation Order
+
+### Phase 1: Address Login Concern (Immediate)
+1. Add per-user YUTorah credentials option in web UI
+2. Add "Skip login-required episodes" toggle
+3. Test if MP3 URLs work without session (manual test)
+4. If MP3 URLs are sessionless: add URL caching for speed
+
+### Phase 2: Core Enhancements
+5. ID3 tag support
+6. Filename templates
+7. Better duplicate detection
+
+### Phase 3: Automation
+8. Cron-friendly CLI improvements (JSON output, exit codes)
+9. Scheduling support
+10. Notification system
+
+### Phase 4: Extended Features (If Needed)
+11. Additional cloud storage backends
+12. Search functionality
+13. Feed discovery by speaker name
+
+---
+
+## Architecture Considerations
+
+If you're keeping this personal, the current Streamlit + Python approach is fine. For sharing more widely:
+
+- **Containerization**: Already have devcontainer, add Docker Compose for easy deployment
+- **Configuration**: Move from secrets.toml to environment variables for flexibility
+- **Database**: Consider SQLite instead of JSON for larger scale
 - **Testing**: Add unit tests for core download logic
 
