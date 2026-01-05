@@ -34,7 +34,7 @@ DEFAULT_FEEDS = {
 }
 
 
-def download_and_upload_to_drive(mp3_url, title, folder_id):
+def download_and_upload_to_drive(mp3_url, title, folder_id, shiur_id=None):
     """
     Download MP3 file and upload to Google Drive.
 
@@ -42,6 +42,7 @@ def download_and_upload_to_drive(mp3_url, title, folder_id):
         mp3_url: URL of the MP3 file
         title: Title of the episode
         folder_id: Google Drive folder ID to upload to
+        shiur_id: Optional shiur ID to store in file description for tracking
 
     Returns:
         Dictionary with file info or None
@@ -60,12 +61,18 @@ def download_and_upload_to_drive(mp3_url, title, folder_id):
             if chunk:
                 file_content += chunk
 
+        # Prepare description with shiur ID for tracking
+        description = None
+        if shiur_id:
+            description = f"shiurID:{shiur_id}"
+
         # Upload to Google Drive
         file_info = gd.upload_file_to_drive(
             file_content,
             filename,
             folder_id=folder_id,
-            mime_type='audio/mpeg'
+            mime_type='audio/mpeg',
+            description=description
         )
 
         return file_info
@@ -251,11 +258,15 @@ def main():
             help="Time to wait between downloads"
         )
 
-        db_file = st.text_input(
-            "Database File",
-            value="downloaded_shiurim.json",
-            help="File to track downloaded shiurim"
-        )
+        # Only show local database option when not using Google Drive
+        if not gd.is_authenticated():
+            db_file = st.text_input(
+                "Database File",
+                value="downloaded_shiurim.json",
+                help="File to track downloaded shiurim (not used with Google Drive)"
+            )
+        else:
+            db_file = "downloaded_shiurim.json"  # Default value, but not used
 
     # Main content area
     col1, col2 = st.columns([2, 1])
@@ -266,18 +277,20 @@ def main():
             st.code(feeds[feed_name], language=None)
 
     with col2:
-        # Stats
-        downloaded_shiurim = load_downloaded_shiurim(db_file)
-        st.metric("Total Downloaded", len(downloaded_shiurim))
-
-        if os.path.exists(db_file):
-            try:
-                with open(db_file, 'r') as f:
-                    data = json.load(f)
-                    last_updated = data.get('last_updated', 'Never')
-                    st.caption(f"Last updated: {last_updated}")
-            except:
-                pass
+        # Stats - shows Google Drive count when authenticated, otherwise local count
+        if gd.is_authenticated():
+            st.caption("☁️ Google Drive tracking enabled")
+        else:
+            downloaded_shiurim = load_downloaded_shiurim(db_file)
+            st.metric("Local DB Count", len(downloaded_shiurim))
+            if os.path.exists(db_file):
+                try:
+                    with open(db_file, 'r') as f:
+                        data = json.load(f)
+                        last_updated = data.get('last_updated', 'Never')
+                        st.caption(f"Last updated: {last_updated}")
+                except:
+                    pass
 
     st.divider()
 
@@ -305,12 +318,34 @@ def main():
                 st.warning("No episodes found in RSS feed")
                 return
 
-            # Filter out already downloaded
-            downloaded_shiurim = load_downloaded_shiurim(db_file)
+            # Get already uploaded shiur IDs
+            # For Google Drive mode, check the actual Drive folder
+            # For local mode, use the JSON database
+            uploaded_shiur_ids = set()
+
+            if gd.is_authenticated() and drive_base_folder:
+                status_text.text("Checking Google Drive for existing uploads...")
+                # Find the target folder to check
+                base_folder_id = gd.find_or_create_folder(drive_base_folder)
+                if base_folder_id:
+                    if use_subfolders:
+                        safe_feed_name = sanitize_filename(feed_name)
+                        check_folder_id = gd.find_or_create_folder(safe_feed_name, base_folder_id)
+                    else:
+                        check_folder_id = base_folder_id
+
+                    if check_folder_id:
+                        uploaded_shiur_ids = gd.get_uploaded_shiur_ids(check_folder_id)
+                        st.session_state.target_folder_id = check_folder_id  # Cache for download
+            else:
+                # Fallback to local JSON database
+                uploaded_shiur_ids = load_downloaded_shiurim(db_file)
+
+            # Filter out already uploaded
             new_episodes = []
             for title, page_url in episodes:
                 shiur_id = extract_shiur_id(page_url)
-                if shiur_id and shiur_id in downloaded_shiurim:
+                if shiur_id and shiur_id in uploaded_shiur_ids:
                     continue
                 new_episodes.append((title, page_url, shiur_id))
 
@@ -320,7 +355,11 @@ def main():
             st.session_state.selected_episodes = {i: True for i in range(len(new_episodes))}
 
             status_text.empty()
-            st.success(f"✅ Found {len(episodes)} total episodes, {len(new_episodes)} new episodes")
+
+            if gd.is_authenticated():
+                st.success(f"✅ Found {len(episodes)} total episodes, {len(new_episodes)} new (checked Google Drive: {len(uploaded_shiur_ids)} already uploaded)")
+            else:
+                st.success(f"✅ Found {len(episodes)} total episodes, {len(new_episodes)} new episodes")
 
         except Exception as e:
             st.error(f"Error: {e}")
@@ -451,27 +490,22 @@ def main():
                                 st.write(f"**Duration:** {episode_data['duration']}")
                             st.write(f"**MP3 URL:** {mp3_url}")
 
-                            # Upload to Google Drive
-                            file_info = download_and_upload_to_drive(mp3_url, title, target_folder_id)
+                            # Get the shiur ID - prefer from JSON data (more reliable)
+                            actual_shiur_id = episode_data.get('shiurID')
+                            if actual_shiur_id:
+                                actual_shiur_id = str(actual_shiur_id)  # Convert to string for consistency
+                            else:
+                                actual_shiur_id = shiur_id  # Fallback to URL-extracted ID
+
+                            # Upload to Google Drive (with shiur ID in description for tracking)
+                            file_info = download_and_upload_to_drive(mp3_url, title, target_folder_id, actual_shiur_id)
 
                             if file_info:
                                 st.success(f"✅ Uploaded to Google Drive: {file_info.get('name', title)}")
                                 if 'webViewLink' in file_info:
                                     st.caption(f"[Open in Drive]({file_info['webViewLink']})")
                                 successful += 1
-
-                                # Mark as downloaded - prefer shiurID from JSON data (more reliable)
-                                actual_shiur_id = episode_data.get('shiurID')
-                                if actual_shiur_id:
-                                    actual_shiur_id = str(actual_shiur_id)  # Convert to string for consistency
-                                else:
-                                    actual_shiur_id = shiur_id  # Fallback to URL-extracted ID
-
-                                if actual_shiur_id:
-                                    downloaded_shiurim = load_downloaded_shiurim(db_file)
-                                    downloaded_shiurim.add(actual_shiur_id)
-                                    save_downloaded_shiurim(db_file, downloaded_shiurim)
-                                    st.caption(f"✓ Marked shiur {actual_shiur_id} as downloaded")
+                                st.caption(f"✓ Shiur {actual_shiur_id} tracked in file metadata")
                             else:
                                 st.error("❌ Upload failed")
                                 failed += 1
@@ -503,29 +537,62 @@ def main():
     elif st.session_state.feed_checked and not st.session_state.new_episodes:
         st.info("✅ All episodes have already been downloaded!")
 
-    # View downloaded shiurim
+    # View uploaded shiurim
     st.divider()
-    with st.expander("📋 View Downloaded Shiurim Database"):
-        downloaded_shiurim = load_downloaded_shiurim(db_file)
-        if downloaded_shiurim:
-            st.write(f"Total downloaded: {len(downloaded_shiurim)}")
-            shiur_list = sorted(list(downloaded_shiurim), reverse=True)
+    with st.expander("📋 View Uploaded Shiurim"):
+        # Check Google Drive if authenticated
+        if gd.is_authenticated() and drive_base_folder:
+            st.info("📂 Checking Google Drive for uploaded shiurim...")
 
-            # Show in columns
-            cols = st.columns(5)
-            for i, shiur_id in enumerate(shiur_list):
-                col_idx = i % 5
-                with cols[col_idx]:
-                    st.caption(shiur_id)
+            # Find the folder to check
+            base_folder_id = gd.find_or_create_folder(drive_base_folder)
+            if base_folder_id:
+                if use_subfolders:
+                    safe_feed_name = sanitize_filename(feed_name)
+                    check_folder_id = gd.find_or_create_folder(safe_feed_name, base_folder_id)
+                else:
+                    check_folder_id = base_folder_id
+
+                if check_folder_id:
+                    uploaded_shiur_ids = gd.get_uploaded_shiur_ids(check_folder_id)
+                    if uploaded_shiur_ids:
+                        st.write(f"Total uploaded to `{feed_name}` folder: {len(uploaded_shiur_ids)}")
+                        shiur_list = sorted(list(uploaded_shiur_ids), reverse=True)
+
+                        # Show in columns
+                        cols = st.columns(5)
+                        for i, shiur_id in enumerate(shiur_list):
+                            col_idx = i % 5
+                            with cols[col_idx]:
+                                st.caption(shiur_id)
+                    else:
+                        st.info("No shiurim uploaded to this folder yet")
+                else:
+                    st.warning("Could not find/create feed folder")
+            else:
+                st.warning("Could not find/create base folder")
         else:
-            st.info("No shiurim downloaded yet")
+            # Fallback to local database
+            downloaded_shiurim = load_downloaded_shiurim(db_file)
+            if downloaded_shiurim:
+                st.write(f"Total in local database: {len(downloaded_shiurim)}")
+                shiur_list = sorted(list(downloaded_shiurim), reverse=True)
 
-        # Clear database option
-        if st.button("🗑️ Clear Database", type="secondary"):
-            if st.checkbox("Are you sure? This cannot be undone!"):
-                save_downloaded_shiurim(db_file, set())
-                st.success("Database cleared")
-                st.rerun()
+                # Show in columns
+                cols = st.columns(5)
+                for i, shiur_id in enumerate(shiur_list):
+                    col_idx = i % 5
+                    with cols[col_idx]:
+                        st.caption(shiur_id)
+
+                # Clear database option (only for local mode)
+                if st.button("🗑️ Clear Local Database", type="secondary"):
+                    if st.checkbox("Are you sure? This cannot be undone!"):
+                        save_downloaded_shiurim(db_file, set())
+                        st.success("Database cleared")
+                        st.rerun()
+            else:
+                st.info("No shiurim in local database. Sign in to Google Drive to track uploads.")
 
 
 if __name__ == '__main__':

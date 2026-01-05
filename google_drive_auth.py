@@ -316,7 +316,7 @@ def find_or_create_folder(folder_name, parent_folder_id=None):
         return None
 
 
-def upload_file_to_drive(file_content, filename, folder_id=None, mime_type='audio/mpeg'):
+def upload_file_to_drive(file_content, filename, folder_id=None, mime_type='audio/mpeg', description=None):
     """
     Upload a file to Google Drive.
 
@@ -325,9 +325,10 @@ def upload_file_to_drive(file_content, filename, folder_id=None, mime_type='audi
         filename: Name for the file
         folder_id: ID of folder to upload to (None for root)
         mime_type: MIME type of the file
+        description: Optional description (used to store shiur ID for tracking)
 
     Returns:
-        File ID or None
+        File info dict or None
     """
     service = get_drive_service()
     if not service:
@@ -340,6 +341,9 @@ def upload_file_to_drive(file_content, filename, folder_id=None, mime_type='audi
     if folder_id:
         file_metadata['parents'] = [folder_id]
 
+    if description:
+        file_metadata['description'] = description
+
     try:
         media = MediaIoBaseUpload(
             io.BytesIO(file_content),
@@ -350,7 +354,7 @@ def upload_file_to_drive(file_content, filename, folder_id=None, mime_type='audi
         file = service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id, name, webViewLink'
+            fields='id, name, webViewLink, description'
         ).execute()
 
         return file
@@ -390,6 +394,71 @@ def is_authenticated():
     init_auth_from_cookies()
 
     return st.session_state.get('google_authenticated', False)
+
+
+def list_files_in_folder(folder_id):
+    """
+    List all files in a Google Drive folder.
+
+    Args:
+        folder_id: ID of the folder to list files from
+
+    Returns:
+        List of file dictionaries with 'id', 'name', 'description' fields
+    """
+    service = get_drive_service()
+    if not service:
+        return []
+
+    try:
+        query = f"'{folder_id}' in parents and trashed=false"
+        all_files = []
+        page_token = None
+
+        while True:
+            results = service.files().list(
+                q=query,
+                spaces='drive',
+                fields='nextPageToken, files(id, name, description)',
+                pageToken=page_token,
+                pageSize=100
+            ).execute()
+
+            all_files.extend(results.get('files', []))
+            page_token = results.get('nextPageToken')
+
+            if not page_token:
+                break
+
+        return all_files
+    except Exception as e:
+        print(f"Error listing files: {e}")
+        return []
+
+
+def get_uploaded_shiur_ids(folder_id):
+    """
+    Get set of shiur IDs that have already been uploaded to a folder.
+    Extracts shiur IDs from file descriptions (where we store them).
+
+    Args:
+        folder_id: ID of the folder to check
+
+    Returns:
+        Set of shiur ID strings
+    """
+    files = list_files_in_folder(folder_id)
+    shiur_ids = set()
+
+    for f in files:
+        # Check description for shiur ID
+        desc = f.get('description', '')
+        if desc and desc.startswith('shiurID:'):
+            shiur_id = desc.replace('shiurID:', '').strip()
+            if shiur_id:
+                shiur_ids.add(shiur_id)
+
+    return shiur_ids
 
 
 def sign_out():
