@@ -61,8 +61,6 @@ This guide will walk you through setting up Google Drive integration for the YUT
 5. Add the following secrets:
 
 ```toml
-YUTORAH_USERNAME = "your_yutorah_username"
-YUTORAH_PASSWORD = "your_yutorah_password"
 GOOGLE_CLIENT_ID = "your_google_client_id"
 GOOGLE_CLIENT_SECRET = "your_google_client_secret"
 GOOGLE_REDIRECT_URI = "https://your-app-name.streamlit.app"
@@ -74,8 +72,6 @@ GOOGLE_REDIRECT_URI = "https://your-app-name.streamlit.app"
 2. Add the following content:
 
 ```toml
-YUTORAH_USERNAME = "your_yutorah_username"
-YUTORAH_PASSWORD = "your_yutorah_password"
 GOOGLE_CLIENT_ID = "your_google_client_id"
 GOOGLE_CLIENT_SECRET = "your_google_client_secret"
 GOOGLE_REDIRECT_URI = "http://localhost:8501"
