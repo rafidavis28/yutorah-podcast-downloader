@@ -6,14 +6,15 @@ A Python application to download podcast episodes from YUTorah RSS feeds with bo
 
 - 🎧 Downloads MP3 files from YUTorah RSS feeds
 - ☁️ **Google Drive Integration** - Save podcasts directly to your Google Drive
-- 🔐 Handles both public and login-required episodes
+- 🚀 **No login required** - Downloads work without YUTorah authentication
+- ⏱️ Shows episode duration before downloading
 - 📊 Tracks downloaded shiurim to avoid re-downloading
 - 🌐 Web interface built with Streamlit
 - 📝 Manage multiple RSS feeds
 - 📈 Progress tracking and detailed logging
 - ⚡ Customizable download limits and delays
 - 🎯 Command-line interface for automation
-- 👤 Per-user authentication - each visitor can use their own Google Drive
+- 👤 Per-user Google Drive - each visitor can use their own account
 
 ## Installation
 
@@ -25,18 +26,6 @@ pip install -r requirements.txt
 ```
 
 ## Configuration
-
-### YUTorah Credentials (For Streamlit App)
-
-For the web interface, add your YUTorah credentials to Streamlit secrets:
-
-**Streamlit Cloud:**
-- Go to your app settings → Secrets
-- Add `YUTORAH_USERNAME` and `YUTORAH_PASSWORD`
-
-**Local Development:**
-- Create `.streamlit/secrets.toml`
-- Add your credentials (see `GOOGLE_DRIVE_SETUP.md`)
 
 ### Google Drive Integration (Web Interface Only)
 
@@ -171,12 +160,12 @@ The web interface stores RSS feed configurations in `rss_feeds.json`, allowing y
 
 ## Notes
 
+- **No Login Required**: Downloads work without YUTorah authentication - MP3 URLs are extracted from public page data
 - **Shiur Tracking**: The script automatically skips shiurim that have already been downloaded (based on shiur ID)
 - **Filename Safety**: Special characters (quotes, colons, Hebrew characters, etc.) are handled automatically to ensure cross-platform compatibility
 - **Subfolders**: Each feed can have its own subfolder to keep downloads organized
 - **Polite Scraping**: A 1-second delay between downloads is used by default to be respectful to the server
 - **Resume-Safe**: The database file is updated after each successful download, so you can safely interrupt the process
-- **Login Support**: Login credentials are only required for episodes marked as "download-disabled"
 
 ## Default RSS Feed
 

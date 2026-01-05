@@ -4,7 +4,7 @@ YUTorah Podcast Downloader
 
 This script downloads podcast episodes from a YUTorah RSS feed.
 It parses the RSS feed, visits each episode page, and downloads the MP3 files.
-Handles both public and login-required episodes.
+No login required - extracts download URLs from public page data.
 """
 
 import os
@@ -17,24 +17,15 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urljoin, urlparse, parse_qs
 import requests
-from bs4 import BeautifulSoup
-import streamlit as st
-
-
-# Configuration - Update these with your credentials
-YUTORAH_USERNAME = st.secrets["YUTORAH_USERNAME"]  # Add your YUTorah username here
-YUTORAH_PASSWORD = st.secrets["YUTORAH_PASSWORD"]  # Add your YUTorah password here
 
 # Default RSS feed URL
 DEFAULT_RSS_URL = "http://www.yutorah.org/rss/RssAudioOnly/teacher/80307"
 
-# Session for maintaining login state
+# Session for HTTP requests
 session = requests.Session()
 session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 })
-
-logged_in = False
 
 
 def load_downloaded_shiurim(db_file):
@@ -80,13 +71,18 @@ def extract_shiur_id(page_url):
     """
     Extract shiur ID from the episode page URL.
 
+    Handles multiple URL formats:
+    - https://www.yutorah.org/lectures/details?shiurID=1159876
+    - https://www.yutorah.org/lectures/1160274/
+    - https://www.yutorah.org/lectures/lecture.cfm/1160032
+
     Args:
         page_url: URL of the episode page
 
     Returns:
         Shiur ID as string, or None if not found
     """
-    # URL format: https://www.yutorah.org/lectures/details?shiurID=1159876
+    # Format 1: Query parameter - ?shiurID=1159876
     try:
         parsed = urlparse(page_url)
         params = parse_qs(parsed.query)
@@ -95,69 +91,18 @@ def extract_shiur_id(page_url):
     except:
         pass
 
-    # Try regex as fallback
+    # Format 2: In path - /lectures/1160274/ or /lectures/lecture.cfm/1160032
+    # Look for a sequence of digits in the path
+    match = re.search(r'/lectures/(?:lecture\.cfm/|details/)?(\d+)', page_url)
+    if match:
+        return match.group(1)
+
+    # Format 3: shiurID in path or query (legacy fallback)
     match = re.search(r'shiurID[=:](\d+)', page_url)
     if match:
         return match.group(1)
 
     return None
-
-
-def login_to_yutorah():
-    """
-    Login to YUTorah website to access restricted content.
-    """
-    global logged_in
-
-    if not YUTORAH_USERNAME or not YUTORAH_PASSWORD:
-        print("Warning: No credentials provided. Login-required episodes will be skipped.")
-        return False
-
-    if logged_in:
-        return True
-
-    print("Logging in to YUTorah...")
-
-    # Get the login page to find any CSRF tokens or form fields
-    login_page_url = "https://www.yutorah.org/login"
-    try:
-        response = session.get(login_page_url)
-        response.raise_for_status()
-
-        # Parse the login page to find the form
-        soup = BeautifulSoup(response.text, 'html.parser')
-        login_form = soup.find('form')
-
-        # Prepare login data
-        login_data = {
-            'username': YUTORAH_USERNAME,
-            'password': YUTORAH_PASSWORD,
-        }
-
-        # Add any hidden fields from the form
-        if login_form:
-            for hidden in login_form.find_all('input', type='hidden'):
-                if hidden.get('name'):
-                    login_data[hidden['name']] = hidden.get('value', '')
-
-        # Submit login
-        login_url = "https://www.yutorah.org/login"
-        response = session.post(login_url, data=login_data)
-        response.raise_for_status()
-
-        # Check if login was successful
-        if 'logout' in response.text.lower() or 'sign out' in response.text.lower():
-            print("Successfully logged in to YUTorah")
-            logged_in = True
-            return True
-        else:
-            print("Login may have failed. Continuing anyway...")
-            logged_in = True  # Try anyway
-            return True
-
-    except Exception as e:
-        print(f"Error during login: {e}")
-        return False
 
 
 def fetch_rss_feed(rss_url):
@@ -219,48 +164,68 @@ def extract_episode_links(rss_root):
 
 def get_mp3_url_from_page(page_url):
     """
-    Visit episode page and extract MP3 download URL.
+    Visit episode page and extract MP3 download URL from embedded JSON data.
+
+    The page contains a JavaScript variable 'lecturePlayerData' with all episode
+    information including the direct download URL. This is publicly accessible
+    without authentication.
 
     Args:
         page_url: URL of the episode page
 
     Returns:
-        Tuple of (mp3_url, requires_login)
+        Dictionary with episode data including 'downloadURL', 'duration', 'title', etc.
+        Returns None if extraction fails.
     """
     try:
         response = session.get(page_url)
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        html_content = response.text
 
-        # First check for download-disabled (requires login)
-        download_disabled = soup.find('li', class_='download-disabled')
-        if download_disabled:
-            # Need to login
-            if not logged_in:
-                if not login_to_yutorah():
-                    return None, True
-                # Retry fetching the page after login
-                response = session.get(page_url)
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, 'html.parser')
+        # Extract the lecturePlayerData JSON from the page
+        # Pattern: var lecturePlayerData = {...};
+        pattern = r'var\s+lecturePlayerData\s*=\s*(\{.*?\});'
+        match = re.search(pattern, html_content, re.DOTALL)
 
-        # Look for the download link
-        download_li = soup.find('li', class_='download')
-        if download_li:
-            download_link = download_li.find('a', href=True)
-            if download_link:
-                mp3_url = download_link['href']
-                # Make sure it's an absolute URL
-                if not mp3_url.startswith('http'):
-                    mp3_url = urljoin(page_url, mp3_url)
-                return mp3_url, False
+        if match:
+            json_str = match.group(1)
+            try:
+                data = json.loads(json_str)
 
-        return None, False
+                # Return relevant fields
+                return {
+                    'downloadURL': data.get('downloadURL'),
+                    'playerDownloadURL': data.get('playerDownloadURL'),
+                    'shiurURL': data.get('shiurURL'),
+                    'title': data.get('shiurTitle'),
+                    'duration': data.get('shiurDuration'),
+                    'durationSeconds': data.get('shiurMediaLengthInSeconds'),
+                    'description': data.get('shiurDescription'),
+                    'teacherName': data.get('shiurTeacherFullName'),
+                    'shiurID': data.get('shiurID'),
+                    'dateText': data.get('shiurDateText'),
+                }
+            except json.JSONDecodeError as e:
+                print(f"  Error parsing JSON data: {e}")
+                return None
+
+        # Fallback: try to find audio tag src as backup
+        audio_pattern = r'<audio[^>]+src="([^"]+)"'
+        audio_match = re.search(audio_pattern, html_content)
+        if audio_match:
+            audio_url = audio_match.group(1)
+            return {
+                'downloadURL': audio_url,
+                'playerDownloadURL': audio_url,
+            }
+
+        print(f"  Could not find lecturePlayerData in page")
+        return None
 
     except Exception as e:
         print(f"Error fetching page {page_url}: {e}")
-        return None, False
+        return None
 
 
 def sanitize_filename(filename):
@@ -489,7 +454,6 @@ def main():
     # Download each episode
     successful = 0
     failed = 0
-    skipped = 0
 
     for i, (title, page_url, shiur_id) in enumerate(new_episodes, 1):
         print(f"[{i}/{len(new_episodes)}] {title}")
@@ -498,16 +462,15 @@ def main():
             print(f"  Shiur ID: {shiur_id}")
 
         # Get MP3 URL from page
-        mp3_url, requires_login = get_mp3_url_from_page(page_url)
+        episode_data = get_mp3_url_from_page(page_url)
 
-        if not mp3_url:
-            if requires_login:
-                print("  Skipped: Requires login (no credentials provided)")
-                skipped += 1
-            else:
-                print("  Failed: Could not find MP3 download link")
-                failed += 1
+        if not episode_data or not episode_data.get('downloadURL'):
+            print("  Failed: Could not find MP3 download link")
+            failed += 1
         else:
+            mp3_url = episode_data['downloadURL']
+            if episode_data.get('duration'):
+                print(f"  Duration: {episode_data['duration']}")
             print(f"  MP3 URL: {mp3_url}")
 
             # Download the MP3
@@ -531,7 +494,6 @@ def main():
     print(f"Download complete!")
     print(f"  Successful: {successful}")
     print(f"  Failed: {failed}")
-    print(f"  Skipped: {skipped}")
     print(f"  Total new episodes: {len(new_episodes)}")
 
 
