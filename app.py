@@ -8,6 +8,7 @@ A web interface for downloading podcast episodes from YUTorah RSS feeds.
 import streamlit as st
 import json
 import os
+import re
 import time
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -32,6 +33,77 @@ FEEDS_CONFIG_FILE = 'rss_feeds.json'
 DEFAULT_FEEDS = {
     "Rav Moshe Taragin": "http://www.yutorah.org/rss/RssAudioOnly/teacher/80307",
 }
+
+
+def run_lecture_parser_diagnostics(page_url):
+    """Run lecture parser strategies and return a structured diagnostics report."""
+    report = {
+        "lecture_url": page_url,
+        "http_status": None,
+        "success": False,
+        "successful_strategy": None,
+        "downloadURL": None,
+        "shiurID": None,
+        "strategies": [],
+    }
+
+    try:
+        response = session.get(page_url)
+        report["http_status"] = response.status_code
+        response.raise_for_status()
+        html_content = response.text
+    except Exception as e:
+        report["error"] = f"HTTP fetch failed: {e}"
+        return report
+
+    # Strategy 1: lecturePlayerData JSON blob
+    strategy_json = {
+        "name": "lecturePlayerData_json",
+        "success": False,
+    }
+    pattern = r'var\s+lecturePlayerData\s*=\s*(\{.*?\});'
+    match = re.search(pattern, html_content, re.DOTALL)
+
+    if not match:
+        strategy_json["error"] = "lecturePlayerData variable not found"
+    else:
+        try:
+            data = json.loads(match.group(1))
+            strategy_json["extracted_downloadURL"] = data.get("downloadURL")
+            strategy_json["extracted_shiurID"] = data.get("shiurID")
+            if data.get("downloadURL"):
+                strategy_json["success"] = True
+                report["success"] = True
+                report["successful_strategy"] = strategy_json["name"]
+                report["downloadURL"] = data.get("downloadURL")
+                report["shiurID"] = data.get("shiurID")
+            else:
+                strategy_json["error"] = "downloadURL missing in lecturePlayerData"
+        except json.JSONDecodeError as e:
+            strategy_json["error"] = f"JSON decode error: {e}"
+
+    report["strategies"].append(strategy_json)
+
+    # Strategy 2: audio tag src fallback
+    strategy_audio = {
+        "name": "audio_tag_src",
+        "success": False,
+    }
+    audio_match = re.search(r'<audio[^>]+src="([^"]+)"', html_content)
+    if audio_match:
+        strategy_audio["extracted_downloadURL"] = audio_match.group(1)
+        strategy_audio["success"] = True
+        if not report["success"]:
+            report["success"] = True
+            report["successful_strategy"] = strategy_audio["name"]
+            report["downloadURL"] = audio_match.group(1)
+            report["shiurID"] = extract_shiur_id(page_url)
+    else:
+        strategy_audio["error"] = "audio src not found"
+
+    report["strategies"].append(strategy_audio)
+
+    return report
 
 
 def download_and_upload_to_drive(mp3_url, title, folder_id, shiur_id=None):
@@ -267,6 +339,106 @@ def main():
             )
         else:
             db_file = "downloaded_shiurim.json"  # Default value, but not used
+
+
+    # Diagnostics panel
+    with st.sidebar.expander("🧪 Diagnostics", expanded=False):
+        st.caption("Troubleshoot RSS and lecture parsing behavior.")
+
+        selected_feed_url = feeds.get(feed_name, "")
+        rss_diag_url = st.text_input(
+            "RSS URL",
+            value=selected_feed_url,
+            key="diag_rss_url",
+            help="Prefilled from the currently selected feed. You can override for testing.",
+        )
+
+        lecture_override = st.text_input(
+            "Lecture URL override (optional)",
+            value="",
+            key="diag_lecture_url",
+            help="If empty, first lecture link from RSS test results will be used.",
+        )
+
+        if "diag_report" not in st.session_state:
+            st.session_state.diag_report = {}
+
+        if st.button("Test RSS fetch + parse", key="diag_rss_test", use_container_width=True):
+            rss_report = {
+                "rss_url": rss_diag_url,
+                "http_status": None,
+                "item_count": 0,
+                "first_three_lecture_links": [],
+            }
+
+            try:
+                response = session.get(rss_diag_url)
+                rss_report["http_status"] = response.status_code
+                response.raise_for_status()
+
+                root = ET.fromstring(response.content)
+                items = root.findall('.//item')
+                rss_report["item_count"] = len(items)
+
+                links = []
+                for item in items[:3]:
+                    link_elem = item.find('link')
+                    if link_elem is not None and link_elem.text:
+                        links.append(link_elem.text.strip())
+                rss_report["first_three_lecture_links"] = links
+            except Exception as e:
+                rss_report["error"] = str(e)
+
+            st.session_state.diag_report["rss_test"] = rss_report
+
+        if st.button("Test lecture parse (MP3 extraction only)", key="diag_lecture_test", use_container_width=True):
+            lecture_url = lecture_override.strip()
+            rss_data = st.session_state.diag_report.get("rss_test", {})
+            if not lecture_url:
+                first_links = rss_data.get("first_three_lecture_links", [])
+                if first_links:
+                    lecture_url = first_links[0]
+
+            if not lecture_url:
+                st.warning("No lecture URL available. Provide an override or run RSS test first.")
+            else:
+                lecture_report = run_lecture_parser_diagnostics(lecture_url)
+                st.session_state.diag_report["lecture_test"] = lecture_report
+
+        rss_data = st.session_state.diag_report.get("rss_test")
+        if rss_data:
+            st.markdown("**RSS test result**")
+            st.write(f"HTTP status: `{rss_data.get('http_status')}`")
+            st.write(f"Item count: `{rss_data.get('item_count', 0)}`")
+            st.write("First 3 lecture links:")
+            for link in rss_data.get("first_three_lecture_links", []):
+                st.code(link, language=None)
+            if rss_data.get("error"):
+                st.error(rss_data["error"])
+
+        lecture_data = st.session_state.diag_report.get("lecture_test")
+        if lecture_data:
+            st.markdown("**Lecture parse result**")
+            if lecture_data.get("success"):
+                st.success(f"Strategy: {lecture_data.get('successful_strategy')}")
+                st.write(f"downloadURL: `{lecture_data.get('downloadURL')}`")
+                st.write(f"shiurID: `{lecture_data.get('shiurID')}`")
+            else:
+                st.error("No extraction strategy succeeded.")
+                if lecture_data.get("error"):
+                    st.error(lecture_data["error"])
+                for strat in lecture_data.get("strategies", []):
+                    st.write(f"- {strat.get('name')}: {strat.get('error', 'failed')}")
+
+        if st.session_state.diag_report:
+            report_json = json.dumps(st.session_state.diag_report, indent=2, ensure_ascii=False)
+            st.download_button(
+                "Download parser report",
+                data=report_json,
+                file_name="parser_diagnostics_report.json",
+                mime="application/json",
+                use_container_width=True,
+            )
 
     # Main content area
     col1, col2 = st.columns([2, 1])
