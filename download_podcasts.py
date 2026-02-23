@@ -182,50 +182,223 @@ def get_mp3_url_from_page(page_url):
         response.raise_for_status()
 
         html_content = response.text
+        strategy_results = []
 
-        # Extract the lecturePlayerData JSON from the page
-        # Pattern: var lecturePlayerData = {...};
-        pattern = r'var\s+lecturePlayerData\s*=\s*(\{.*?\});'
-        match = re.search(pattern, html_content, re.DOTALL)
+        strategies = [
+            ("lecturePlayerData", _extract_from_lecture_player_data),
+            ("nextData", _extract_from_next_data),
+            ("scriptBlobs", _extract_from_script_blobs),
+            ("audioTags", _extract_from_audio_tags),
+        ]
 
-        if match:
-            json_str = match.group(1)
-            try:
-                data = json.loads(json_str)
-
-                # Return relevant fields
-                return {
-                    'downloadURL': data.get('downloadURL'),
-                    'playerDownloadURL': data.get('playerDownloadURL'),
-                    'shiurURL': data.get('shiurURL'),
-                    'title': data.get('shiurTitle'),
-                    'duration': data.get('shiurDuration'),
-                    'durationSeconds': data.get('shiurMediaLengthInSeconds'),
-                    'description': data.get('shiurDescription'),
-                    'teacherName': data.get('shiurTeacherFullName'),
-                    'shiurID': data.get('shiurID'),
-                    'dateText': data.get('shiurDateText'),
+        for strategy_name, strategy in strategies:
+            extracted, markers = strategy(html_content)
+            strategy_results.append({
+                'strategy': strategy_name,
+                'markers': markers,
+            })
+            if extracted:
+                normalized = _normalize_episode_data(extracted, page_url)
+                normalized['strategies_attempted'] = [
+                    entry['strategy'] for entry in strategy_results
+                ]
+                normalized['strategy_markers'] = {
+                    entry['strategy']: entry['markers'] for entry in strategy_results
                 }
-            except json.JSONDecodeError as e:
-                print(f"  Error parsing JSON data: {e}")
-                return None
+                return normalized
 
-        # Fallback: try to find audio tag src as backup
-        audio_pattern = r'<audio[^>]+src="([^"]+)"'
-        audio_match = re.search(audio_pattern, html_content)
-        if audio_match:
-            audio_url = audio_match.group(1)
-            return {
-                'downloadURL': audio_url,
-                'playerDownloadURL': audio_url,
-            }
-
-        print(f"  Could not find lecturePlayerData in page")
-        return None
+        return {
+            'failure_reason': 'no_supported_audio_payload_found',
+            'strategies_attempted': [entry['strategy'] for entry in strategy_results],
+            'strategy_markers': {
+                entry['strategy']: entry['markers'] for entry in strategy_results
+            },
+            'downloadURL': None,
+            'playerDownloadURL': None,
+            'shiurID': extract_shiur_id(page_url),
+        }
 
     except Exception as e:
         print(f"Error fetching page {page_url}: {e}")
-        return None
+        return {
+            'failure_reason': f'page_fetch_error: {e}',
+            'strategies_attempted': [],
+            'strategy_markers': {},
+            'downloadURL': None,
+            'playerDownloadURL': None,
+            'shiurID': extract_shiur_id(page_url),
+        }
+
+
+def _extract_json_script_blocks(html_content):
+    """Extract inline JSON from <script> tags, including __NEXT_DATA__ payloads."""
+    pattern = r'<script[^>]*?(?:id="([^"]+)")?[^>]*?type="application/json"[^>]*>(.*?)</script>'
+    script_blocks = []
+    for script_id, script_body in re.findall(pattern, html_content, re.DOTALL | re.IGNORECASE):
+        text = script_body.strip()
+        if text:
+            script_blocks.append({'id': script_id, 'text': text})
+    return script_blocks
+
+
+def _walk_for_audio_fields(data, results):
+    """Recursively scan nested JSON for audio-related fields."""
+    if isinstance(data, dict):
+        for key, value in data.items():
+            key_lower = key.lower()
+            if key in ('downloadURL', 'playerDownloadURL') and isinstance(value, str):
+                results[key] = value
+            elif 'downloadurl' in key_lower and isinstance(value, str):
+                results.setdefault('downloadURL', value)
+            elif key_lower in ('shiurid', 'shiurid'):
+                results.setdefault('shiurID', str(value))
+            elif key_lower in ('duration', 'shiurduration'):
+                results.setdefault('duration', value)
+            elif key_lower in ('shiurmedialengthinseconds', 'durationseconds'):
+                results.setdefault('durationSeconds', value)
+            elif key_lower in ('title', 'shiurtitle') and isinstance(value, str):
+                results.setdefault('title', value)
+            elif key_lower in ('description', 'shiurdescription') and isinstance(value, str):
+                results.setdefault('description', value)
+            elif key_lower in ('shiurteacherfullname', 'teachername') and isinstance(value, str):
+                results.setdefault('teacherName', value)
+            elif key_lower in ('shiururl',):
+                results.setdefault('shiurURL', value)
+
+            if isinstance(value, str) and value.lower().endswith('.mp3'):
+                results.setdefault('downloadURL', value)
+
+            _walk_for_audio_fields(value, results)
+    elif isinstance(data, list):
+        for item in data:
+            _walk_for_audio_fields(item, results)
+
+
+def _extract_from_lecture_player_data(html_content):
+    """Strategy A: parse legacy lecturePlayerData payload."""
+    pattern = r'var\s+lecturePlayerData\s*=\s*(\{.*?\});'
+    match = re.search(pattern, html_content, re.DOTALL)
+    markers = {
+        'lecturePlayerData_found': bool(match),
+    }
+
+    if not match:
+        return None, markers
+
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError as e:
+        markers['json_error'] = str(e)
+        return None, markers
+
+    return {
+        'downloadURL': data.get('downloadURL'),
+        'playerDownloadURL': data.get('playerDownloadURL'),
+        'shiurURL': data.get('shiurURL'),
+        'title': data.get('shiurTitle'),
+        'duration': data.get('shiurDuration'),
+        'durationSeconds': data.get('shiurMediaLengthInSeconds'),
+        'description': data.get('shiurDescription'),
+        'teacherName': data.get('shiurTeacherFullName'),
+        'shiurID': data.get('shiurID'),
+        'dateText': data.get('shiurDateText'),
+    }, markers
+
+
+def _extract_from_next_data(html_content):
+    """Strategy B: parse modern Next.js app payloads from __NEXT_DATA__."""
+    blocks = _extract_json_script_blocks(html_content)
+    next_blocks = [block for block in blocks if block['id'] == '__NEXT_DATA__']
+    markers = {
+        'json_script_blocks': len(blocks),
+        'next_data_blocks': len(next_blocks),
+    }
+
+    for block in next_blocks:
+        try:
+            payload = json.loads(block['text'])
+        except json.JSONDecodeError:
+            continue
+        results = {}
+        _walk_for_audio_fields(payload, results)
+        if results.get('downloadURL') or results.get('playerDownloadURL'):
+            return results, markers
+
+    return None, markers
+
+
+def _extract_from_script_blobs(html_content):
+    """Strategy C: parse script/json blobs for known keys and MP3 URL patterns."""
+    markers = {
+        'downloadURL_key_mentions': len(re.findall(r'downloadURL', html_content, re.IGNORECASE)),
+        'shiurID_key_mentions': len(re.findall(r'shiurID', html_content, re.IGNORECASE)),
+    }
+
+    snippets = re.findall(r'\{[^{}]*?(?:downloadURL|playerDownloadURL|shiurID)[^{}]*?\}', html_content, re.DOTALL | re.IGNORECASE)
+    for snippet in snippets[:30]:
+        cleaned = re.sub(r'([,{]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:', r'\1"\2":', snippet)
+        cleaned = cleaned.replace("'", '"')
+        try:
+            candidate = json.loads(cleaned)
+            results = {}
+            _walk_for_audio_fields(candidate, results)
+            if results.get('downloadURL') or results.get('playerDownloadURL'):
+                return results, markers
+        except Exception:
+            continue
+
+    mp3_matches = re.findall(r'https?://[^"\'\s>]+\.mp3(?:\?[^"\'\s>]*)?', html_content, re.IGNORECASE)
+    if mp3_matches:
+        markers['mp3_match_count'] = len(mp3_matches)
+        return {'downloadURL': mp3_matches[0], 'playerDownloadURL': mp3_matches[0]}, markers
+
+    return None, markers
+
+
+def _extract_from_audio_tags(html_content):
+    """Strategy D: parse <audio> and <source> tags for MP3 sources."""
+    markers = {
+        'audio_tag_count': len(re.findall(r'<audio\b', html_content, re.IGNORECASE)),
+        'source_tag_count': len(re.findall(r'<source\b', html_content, re.IGNORECASE)),
+    }
+
+    candidates = []
+    candidates.extend(re.findall(r'<audio[^>]+src="([^"]+)"', html_content, re.IGNORECASE))
+    candidates.extend(re.findall(r'<audio[^>]+src=\'([^\']+)\'', html_content, re.IGNORECASE))
+    candidates.extend(re.findall(r'<source[^>]+src="([^"]+)"', html_content, re.IGNORECASE))
+    candidates.extend(re.findall(r'<source[^>]+src=\'([^\']+)\'', html_content, re.IGNORECASE))
+
+    for url in candidates:
+        if '.mp3' in url.lower():
+            return {
+                'downloadURL': url,
+                'playerDownloadURL': url,
+            }, markers
+
+    if candidates:
+        return {
+            'downloadURL': candidates[0],
+            'playerDownloadURL': candidates[0],
+        }, markers
+
+    return None, markers
+
+
+def _normalize_episode_data(data, page_url):
+    """Normalize extracted payloads to the current downloader schema."""
+    normalized = {
+        'downloadURL': data.get('downloadURL') or data.get('playerDownloadURL'),
+        'playerDownloadURL': data.get('playerDownloadURL') or data.get('downloadURL'),
+        'shiurURL': data.get('shiurURL') or page_url,
+        'title': data.get('title') or data.get('shiurTitle'),
+        'duration': data.get('duration') or data.get('shiurDuration'),
+        'durationSeconds': data.get('durationSeconds') or data.get('shiurMediaLengthInSeconds'),
+        'description': data.get('description') or data.get('shiurDescription'),
+        'teacherName': data.get('teacherName') or data.get('shiurTeacherFullName'),
+        'shiurID': str(data.get('shiurID')) if data.get('shiurID') is not None else extract_shiur_id(page_url),
+        'dateText': data.get('dateText') or data.get('shiurDateText'),
+    }
+    return normalized
 
 
 def sanitize_filename(filename):
