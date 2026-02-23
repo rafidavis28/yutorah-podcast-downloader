@@ -336,6 +336,15 @@ def main():
 
         use_google_drive = storage_mode == "Google Drive"
 
+        storage_mode = st.radio(
+            "Storage Mode",
+            options=["Google Drive", "Local Files"],
+            key="storage_mode",
+            horizontal=True
+        )
+
+        use_google_drive = storage_mode == "Google Drive"
+
         # Google Drive Authentication
         if use_google_drive:
             st.subheader("☁️ Google Drive")
@@ -347,6 +356,18 @@ def main():
                 gd.handle_oauth_callback(auth_code)
                 # Clear query params
                 st.query_params.clear()
+                st.rerun()
+
+            if gd.is_authenticated():
+                user_info = gd.get_user_info()
+                if user_info:
+                    st.success(f"✅ Signed in as: {user_info.get('emailAddress', 'Unknown')}")
+                else:
+                    st.success("✅ Signed in to Google Drive")
+
+                if st.button("🚪 Sign Out", use_container_width=True):
+                    gd.sign_out()
+                    st.rerun()
                 st.rerun()
 
             if gd.is_authenticated():
@@ -495,6 +516,8 @@ def main():
             help="When enabled, files are placed under Base/<Speaker Feed Name>/... in both local and Drive modes.",
         )
 
+        # Only show local database option for local storage mode
+        if not use_google_drive:
         delay = st.slider("Delay Between Downloads (seconds)", 0.5, 5.0, 1.0, 0.5)
         db_file = st.text_input("Database File", value="downloaded_shiurim.json") if not gd.is_authenticated() else "downloaded_shiurim.json"
 
@@ -997,6 +1020,8 @@ def main():
             return
 
         rss_url = feeds[feed_name]
+
+        rss_url = feeds[feed_name]
         status_text = st.empty()
 
         try:
@@ -1028,6 +1053,10 @@ def main():
                 elif use_subfolders:
                     safe_feed_name = sanitize_filename(feed_name)
                     check_folder_id = gd.find_or_create_folder(safe_feed_name)
+
+                if check_folder_id:
+                    uploaded_shiur_ids = gd.get_uploaded_shiur_ids(check_folder_id)
+                    st.session_state.target_folder_id = check_folder_id  # Cache for download
 
                 if check_folder_id:
                     uploaded_shiur_ids = gd.get_uploaded_shiur_ids(check_folder_id)
@@ -1152,6 +1181,9 @@ def main():
                     if use_subfolders:
                         safe_feed_name = sanitize_filename(feed_name)
                         target_folder_id = gd.find_or_create_folder(safe_feed_name)
+
+                if use_subfolders:
+                    st.info(f"📁 Uploading to Google Drive: `{drive_base_folder}/{sanitize_filename(feed_name)}`")
 
                 if use_subfolders:
                     st.info(f"📁 Uploading to Google Drive: `{drive_base_folder}/{sanitize_filename(feed_name)}`")
@@ -1322,6 +1354,25 @@ def main():
                             else:
                                 actual_shiur_id = shiur_id  # Fallback to URL-extracted ID
 
+                            if use_google_drive:
+                                # Upload to Google Drive (with shiur ID in description for tracking)
+                                file_info = download_and_upload_to_drive(mp3_url, title, target_folder_id, actual_shiur_id)
+
+                                if file_info:
+                                    st.success(f"✅ Uploaded to Google Drive: {file_info.get('name', title)}")
+                                    if 'webViewLink' in file_info:
+                                        st.caption(f"[Open in Drive]({file_info['webViewLink']})")
+                                    successful += 1
+                                else:
+                                    st.error("❌ Upload failed")
+                                    failed += 1
+                            else:
+                                if download_mp3(mp3_url, title, target_output_dir):
+                                    st.success("✅ Saved locally")
+                                    successful += 1
+                                else:
+                                    st.error("❌ Local download failed")
+                                    failed += 1
                             # Upload to Google Drive (with shiur ID in description for tracking)
                             transfer_result = download_and_upload_to_drive(mp3_url, title, target_folder_id, actual_shiur_id)
 
@@ -1353,12 +1404,18 @@ def main():
                 progress_bar.progress(progress)
                 status_text.text(f"Processing {idx+1}/{len(selected_episodes)}")
 
-                                if actual_shiur_id:
-                                    downloaded_shiurim = load_downloaded_shiurim(db_file)
-                                    downloaded_shiurim.add(actual_shiur_id)
-                                    save_downloaded_shiurim(db_file, downloaded_shiurim)
-                                    st.caption(f"✓ Marked shiur {actual_shiur_id} as downloaded")
+                            # Mark as downloaded in local JSON DB only for local mode
+                            actual_shiur_id = episode_data.get('shiurID')
+                            if actual_shiur_id:
+                                actual_shiur_id = str(actual_shiur_id)  # Convert to string for consistency
                             else:
+                                actual_shiur_id = shiur_id  # Fallback to URL-extracted ID
+
+                            if actual_shiur_id and not use_google_drive:
+                                downloaded_shiurim = load_downloaded_shiurim(db_file)
+                                downloaded_shiurim.add(actual_shiur_id)
+                                save_downloaded_shiurim(db_file, downloaded_shiurim)
+                                st.caption(f"✓ Marked shiur {actual_shiur_id} as downloaded")
                                 error_stage = transfer_result.get('error_stage')
                                 error_message = transfer_result.get('error') or 'Unknown error'
                                 if error_stage == 'download':
