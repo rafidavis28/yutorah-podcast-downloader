@@ -175,16 +175,38 @@ def get_mp3_url_from_page(page_url):
 
     Returns:
         Dictionary with episode data including 'downloadURL', 'duration', 'title', etc.
-        Returns None if extraction fails.
+        Includes '_parser_meta' with extraction details and failure reasons.
     """
+    parser_meta = {
+        'attempts': [],
+        'detected_markers': {},
+        'failure_reason': None,
+    }
+
+    def fail(reason):
+        parser_meta['failure_reason'] = reason
+        return {
+            'downloadURL': None,
+            '_parser_meta': parser_meta,
+        }
+
     try:
         response = session.get(page_url)
         response.raise_for_status()
 
         html_content = response.text
 
+        # Collect quick page markers for debugging
+        parser_meta['detected_markers'] = {
+            'lecturePlayerData_var': bool(re.search(r'var\s+lecturePlayerData\s*=', html_content)),
+            'audio_tag': bool(re.search(r'<audio[^>]+', html_content, re.IGNORECASE)),
+            'downloadURL_token': 'downloadURL' in html_content,
+            'playerDownloadURL_token': 'playerDownloadURL' in html_content,
+        }
+
         # Extract the lecturePlayerData JSON from the page
         # Pattern: var lecturePlayerData = {...};
+        parser_meta['attempts'].append('lecturePlayerData_json')
         pattern = r'var\s+lecturePlayerData\s*=\s*(\{.*?\});'
         match = re.search(pattern, html_content, re.DOTALL)
 
@@ -205,12 +227,14 @@ def get_mp3_url_from_page(page_url):
                     'teacherName': data.get('shiurTeacherFullName'),
                     'shiurID': data.get('shiurID'),
                     'dateText': data.get('shiurDateText'),
+                    '_parser_meta': parser_meta,
                 }
             except json.JSONDecodeError as e:
                 print(f"  Error parsing JSON data: {e}")
-                return None
+                return fail(f"JSON parse error in lecturePlayerData: {e}")
 
         # Fallback: try to find audio tag src as backup
+        parser_meta['attempts'].append('audio_tag_src')
         audio_pattern = r'<audio[^>]+src="([^"]+)"'
         audio_match = re.search(audio_pattern, html_content)
         if audio_match:
@@ -218,14 +242,15 @@ def get_mp3_url_from_page(page_url):
             return {
                 'downloadURL': audio_url,
                 'playerDownloadURL': audio_url,
+                '_parser_meta': parser_meta,
             }
 
         print(f"  Could not find lecturePlayerData in page")
-        return None
+        return fail("No supported MP3 source found (lecturePlayerData missing and no <audio src>)")
 
     except Exception as e:
         print(f"Error fetching page {page_url}: {e}")
-        return None
+        return fail(f"Request error: {e}")
 
 
 def sanitize_filename(filename):

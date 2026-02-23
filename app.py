@@ -45,28 +45,35 @@ def download_and_upload_to_drive(mp3_url, title, folder_id, shiur_id=None):
         shiur_id: Optional shiur ID to store in file description for tracking
 
     Returns:
-        Dictionary with file info or None
+        Dict with keys: ok (bool), file_info (dict|None), error_stage (str|None), error (str|None)
     """
-    try:
-        # Sanitize filename
-        filename = sanitize_filename(title) + '.mp3'
+    # Sanitize filename
+    filename = sanitize_filename(title) + '.mp3'
 
-        # Download the file content
+    # Download the file content
+    try:
         response = session.get(mp3_url, stream=True)
         response.raise_for_status()
 
-        # Read content into memory
         file_content = b''
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
                 file_content += chunk
+    except Exception as e:
+        return {
+            'ok': False,
+            'file_info': None,
+            'error_stage': 'download',
+            'error': str(e),
+        }
 
-        # Prepare description with shiur ID for tracking
-        description = None
-        if shiur_id:
-            description = f"shiurID:{shiur_id}"
+    # Prepare description with shiur ID for tracking
+    description = None
+    if shiur_id:
+        description = f"shiurID:{shiur_id}"
 
-        # Upload to Google Drive
+    # Upload to Google Drive
+    try:
         file_info = gd.upload_file_to_drive(
             file_content,
             filename,
@@ -74,12 +81,28 @@ def download_and_upload_to_drive(mp3_url, title, folder_id, shiur_id=None):
             mime_type='audio/mpeg',
             description=description
         )
-
-        return file_info
-
     except Exception as e:
-        st.error(f"Error downloading/uploading {title}: {e}")
-        return None
+        return {
+            'ok': False,
+            'file_info': None,
+            'error_stage': 'upload',
+            'error': str(e),
+        }
+
+    if not file_info:
+        return {
+            'ok': False,
+            'file_info': None,
+            'error_stage': 'upload',
+            'error': 'No file info returned from Google Drive API',
+        }
+
+    return {
+        'ok': True,
+        'file_info': file_info,
+        'error_stage': None,
+        'error': None,
+    }
 
 
 def load_feeds_config():
@@ -460,7 +483,9 @@ def main():
 
             # Download selected episodes
             successful = 0
-            failed = 0
+            parse_failures = 0
+            download_failures = 0
+            upload_failures = 0
 
             selected_episodes = [
                 (i, ep) for i, ep in enumerate(st.session_state.new_episodes)
@@ -478,12 +503,30 @@ def main():
                         if shiur_id:
                             st.write(f"**Shiur ID:** {shiur_id}")
 
-                        # Get MP3 URL from page data
-                        episode_data = get_mp3_url_from_page(page_url)
+                        episode_status = st.empty()
+                        episode_status.info("⏳ Processing...")
 
-                        if not episode_data or not episode_data.get('downloadURL'):
-                            st.error("❌ Failed: Could not find MP3 download link")
-                            failed += 1
+                        # Get MP3 URL from page data
+                        episode_data = get_mp3_url_from_page(page_url) or {}
+                        parser_meta = episode_data.get('_parser_meta', {})
+
+                        if not episode_data.get('downloadURL'):
+                            parse_failures += 1
+                            failure_reason = parser_meta.get('failure_reason') or "Could not find MP3 download link"
+                            st.error(f"❌ Parse failed: {failure_reason}")
+                            episode_status.error("Parse failed")
+                            st.markdown(f"Lecture page: [{page_url}]({page_url})")
+                            st.markdown(
+                                "**Manual fallback:** 1) Open the lecture page above 2) Find/copy the direct MP3 link (if available) 3) Upload manually."
+                            )
+                            debug_payload = {
+                                'page_url': page_url,
+                                'failure_reason': failure_reason,
+                                'attempts': parser_meta.get('attempts', []),
+                                'detected_markers': parser_meta.get('detected_markers', {}),
+                            }
+                            st.caption("Copy debug info")
+                            st.code(json.dumps(debug_payload, separators=(',', ':'), ensure_ascii=False), language="json")
                         else:
                             mp3_url = episode_data['downloadURL']
                             if episode_data.get('duration'):
@@ -498,13 +541,15 @@ def main():
                                 actual_shiur_id = shiur_id  # Fallback to URL-extracted ID
 
                             # Upload to Google Drive (with shiur ID in description for tracking)
-                            file_info = download_and_upload_to_drive(mp3_url, title, target_folder_id, actual_shiur_id)
+                            transfer_result = download_and_upload_to_drive(mp3_url, title, target_folder_id, actual_shiur_id)
 
-                            if file_info:
+                            if transfer_result.get('ok'):
+                                file_info = transfer_result.get('file_info', {})
                                 st.success(f"✅ Uploaded to Google Drive: {file_info.get('name', title)}")
                                 if 'webViewLink' in file_info:
                                     st.caption(f"[Open in Drive]({file_info['webViewLink']})")
                                 successful += 1
+                                episode_status.success("Uploaded")
 
                                 # Mark as downloaded - prefer shiurID from JSON data (more reliable)
                                 actual_shiur_id = episode_data.get('shiurID')
@@ -519,8 +564,16 @@ def main():
                                     save_downloaded_shiurim(db_file, downloaded_shiurim)
                                     st.caption(f"✓ Marked shiur {actual_shiur_id} as downloaded")
                             else:
-                                st.error("❌ Upload failed")
-                                failed += 1
+                                error_stage = transfer_result.get('error_stage')
+                                error_message = transfer_result.get('error') or 'Unknown error'
+                                if error_stage == 'download':
+                                    st.error(f"❌ Download failed: {error_message}")
+                                    episode_status.error("Download failed")
+                                    download_failures += 1
+                                else:
+                                    st.error(f"❌ Upload failed: {error_message}")
+                                    episode_status.error("Upload failed")
+                                    upload_failures += 1
 
                 # Delay between requests
                 if idx < len(selected_episodes) - 1:
@@ -533,13 +586,27 @@ def main():
             st.divider()
             st.success("✅ Upload to Google Drive Complete!")
 
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Total", len(selected_episodes))
             with col2:
-                st.metric("Successful", successful, delta=successful, delta_color="normal")
+                st.metric("Successes", successful, delta=successful, delta_color="normal")
             with col3:
-                st.metric("Failed", failed, delta=failed if failed > 0 else None, delta_color="inverse")
+                total_failures = parse_failures + download_failures + upload_failures
+                st.metric("Failures", total_failures, delta=total_failures if total_failures > 0 else None, delta_color="inverse")
+            with col4:
+                st.metric("Parse Failures", parse_failures)
+
+            st.subheader("Final Summary")
+            summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+            with summary_col1:
+                st.metric("parse failures", parse_failures)
+            with summary_col2:
+                st.metric("download failures", download_failures)
+            with summary_col3:
+                st.metric("upload failures", upload_failures)
+            with summary_col4:
+                st.metric("successes", successful)
 
             # Clear the selection after download
             st.session_state.new_episodes = []
