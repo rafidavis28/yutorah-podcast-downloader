@@ -94,9 +94,21 @@ def download_and_upload_to_drive(mp3_url, title, folder_id, shiur_id=None):
         # Sanitize filename
         filename = sanitize_filename(title) + '.mp3'
 
-        # Download the file content
-        response = session.get(mp3_url, stream=True)
-        response.raise_for_status()
+        # Download the file content with a couple retries for transient failures
+        last_error = None
+        response = None
+        for attempt in range(3):
+            try:
+                response = session.get(mp3_url, stream=True, timeout=60)
+                response.raise_for_status()
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))
+
+        if response is None:
+            raise RuntimeError(f"Failed to download MP3 after retries: {last_error}")
 
         # Read content into memory
         file_content = b''
@@ -493,7 +505,8 @@ def main():
 
                 if not episode_data or not episode_data.get('downloadURL'):
                     failed += 1
-                    event_log.append(f"Could not find an MP3 link for '{title[:42]}'.")
+                    failure_reason = (episode_data or {}).get('failure_reason', 'unknown reason')
+                    event_log.append(f"Could not find an MP3 link for '{title[:42]}': {failure_reason}.")
                 else:
                     mp3_url = episode_data['downloadURL']
                     actual_shiur_id = str(episode_data.get('shiurID')) if episode_data.get('shiurID') else shiur_id
@@ -528,7 +541,7 @@ def main():
             col3.metric("Failed", failed)
 
             if failed:
-                st.info("Some episodes were skipped. Common reasons: missing MP3 link, temporary network issue, or Drive permission timeout.")
+                st.warning("Some episodes failed. See Recent events for per-episode error reasons (missing MP3 source, network timeout, or Drive permission expiry).")
 
             st.session_state.new_episodes = []
             st.session_state.selected_episodes = {}

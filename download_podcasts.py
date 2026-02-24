@@ -177,116 +177,10 @@ def get_mp3_url_from_page(page_url):
         Dictionary with episode data including 'downloadURL', 'duration', 'title', etc.
         Includes '_parser_meta' with extraction details and failure reasons.
     """
-    parser_meta = {
-        'attempts': [],
-        'detected_markers': {},
-        'failure_reason': None,
-    }
-
-    def fail(reason):
-        parser_meta['failure_reason'] = reason
-        return {
-            'downloadURL': None,
-            '_parser_meta': parser_meta,
-        }
-
     try:
-        response = session.get(page_url)
+        response = session.get(page_url, timeout=20)
         response.raise_for_status()
-
         html_content = response.text
-
-        # Collect quick page markers for debugging
-        parser_meta['detected_markers'] = {
-            'lecturePlayerData_var': bool(re.search(r'var\s+lecturePlayerData\s*=', html_content)),
-            'audio_tag': bool(re.search(r'<audio[^>]+', html_content, re.IGNORECASE)),
-            'downloadURL_token': 'downloadURL' in html_content,
-            'playerDownloadURL_token': 'playerDownloadURL' in html_content,
-        }
-
-        # Extract the lecturePlayerData JSON from the page
-        # Pattern: var lecturePlayerData = {...};
-        parser_meta['attempts'].append('lecturePlayerData_json')
-        pattern = r'var\s+lecturePlayerData\s*=\s*(\{.*?\});'
-        match = re.search(pattern, html_content, re.DOTALL)
-
-        if match:
-            json_str = match.group(1)
-            try:
-                data = json.loads(json_str)
-
-                # Return relevant fields
-                return {
-                    'downloadURL': data.get('downloadURL'),
-                    'playerDownloadURL': data.get('playerDownloadURL'),
-                    'shiurURL': data.get('shiurURL'),
-                    'title': data.get('shiurTitle'),
-                    'duration': data.get('shiurDuration'),
-                    'durationSeconds': data.get('shiurMediaLengthInSeconds'),
-                    'description': data.get('shiurDescription'),
-                    'teacherName': data.get('shiurTeacherFullName'),
-                    'shiurID': data.get('shiurID'),
-                    'dateText': data.get('shiurDateText'),
-                    '_parser_meta': parser_meta,
-                }
-            except json.JSONDecodeError as e:
-                print(f"  Error parsing JSON data: {e}")
-                return fail(f"JSON parse error in lecturePlayerData: {e}")
-
-        # Fallback: try to find audio tag src as backup
-        parser_meta['attempts'].append('audio_tag_src')
-        audio_pattern = r'<audio[^>]+src="([^"]+)"'
-        audio_match = re.search(audio_pattern, html_content)
-        if audio_match:
-            audio_url = audio_match.group(1)
-            return {
-                'downloadURL': audio_url,
-                'playerDownloadURL': audio_url,
-                '_parser_meta': parser_meta,
-            }
-
-        print(f"  Could not find lecturePlayerData in page")
-        return fail("No supported MP3 source found (lecturePlayerData missing and no <audio src>)")
-
-    except Exception as e:
-        print(f"Error fetching page {page_url}: {e}")
-        return fail(f"Request error: {e}")
-        strategy_results = []
-
-        strategies = [
-            ("lecturePlayerData", _extract_from_lecture_player_data),
-            ("nextData", _extract_from_next_data),
-            ("scriptBlobs", _extract_from_script_blobs),
-            ("audioTags", _extract_from_audio_tags),
-        ]
-
-        for strategy_name, strategy in strategies:
-            extracted, markers = strategy(html_content)
-            strategy_results.append({
-                'strategy': strategy_name,
-                'markers': markers,
-            })
-            if extracted:
-                normalized = _normalize_episode_data(extracted, page_url)
-                normalized['strategies_attempted'] = [
-                    entry['strategy'] for entry in strategy_results
-                ]
-                normalized['strategy_markers'] = {
-                    entry['strategy']: entry['markers'] for entry in strategy_results
-                }
-                return normalized
-
-        return {
-            'failure_reason': 'no_supported_audio_payload_found',
-            'strategies_attempted': [entry['strategy'] for entry in strategy_results],
-            'strategy_markers': {
-                entry['strategy']: entry['markers'] for entry in strategy_results
-            },
-            'downloadURL': None,
-            'playerDownloadURL': None,
-            'shiurID': extract_shiur_id(page_url),
-        }
-
     except Exception as e:
         print(f"Error fetching page {page_url}: {e}")
         return {
@@ -297,6 +191,41 @@ def get_mp3_url_from_page(page_url):
             'playerDownloadURL': None,
             'shiurID': extract_shiur_id(page_url),
         }
+
+    strategy_results = []
+    strategies = [
+        ("lecturePlayerData", _extract_from_lecture_player_data),
+        ("nextData", _extract_from_next_data),
+        ("scriptBlobs", _extract_from_script_blobs),
+        ("audioTags", _extract_from_audio_tags),
+    ]
+
+    for strategy_name, strategy in strategies:
+        extracted, markers = strategy(html_content)
+        strategy_results.append({
+            'strategy': strategy_name,
+            'markers': markers,
+        })
+        if extracted:
+            normalized = _normalize_episode_data(extracted, page_url)
+            normalized['strategies_attempted'] = [
+                entry['strategy'] for entry in strategy_results
+            ]
+            normalized['strategy_markers'] = {
+                entry['strategy']: entry['markers'] for entry in strategy_results
+            }
+            return normalized
+
+    return {
+        'failure_reason': 'no_supported_audio_payload_found',
+        'strategies_attempted': [entry['strategy'] for entry in strategy_results],
+        'strategy_markers': {
+            entry['strategy']: entry['markers'] for entry in strategy_results
+        },
+        'downloadURL': None,
+        'playerDownloadURL': None,
+        'shiurID': extract_shiur_id(page_url),
+    }
 
 
 def _extract_json_script_blocks(html_content):
@@ -563,7 +492,7 @@ def download_mp3(mp3_url, title, output_dir):
         print(f"  Downloading: {filename}")
 
         # Download with progress
-        response = session.get(mp3_url, stream=True)
+        response = session.get(mp3_url, stream=True, timeout=60)
         response.raise_for_status()
 
         total_size = int(response.headers.get('content-length', 0))
