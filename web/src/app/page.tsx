@@ -6,6 +6,7 @@ import AuthButton from "@/components/AuthButton";
 import FeedSelector from "@/components/FeedSelector";
 import EpisodeList, { EpisodeWithStatus } from "@/components/EpisodeList";
 import { Feed } from "@/config/feeds";
+import { DownloadSimpleIcon, SpinnerIcon } from "@/components/icons";
 
 type PageState = "idle" | "checking" | "ready" | "downloading";
 
@@ -20,7 +21,6 @@ export default function Home() {
   const [totalInFeed, setTotalInFeed] = useState<number | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
 
-  // ─── Check for new episodes ─────────────────────────────────────────────────
   async function handleCheck() {
     if (!selectedFeed) return;
     setPageState("checking");
@@ -61,7 +61,6 @@ export default function Home() {
     }
   }
 
-  // ─── Selection helpers ───────────────────────────────────────────────────────
   function handleToggle(index: number, checked: boolean) {
     setSelected((prev) => {
       const next = [...prev];
@@ -78,7 +77,6 @@ export default function Home() {
     setSelected(episodes.map(() => false));
   }
 
-  // ─── Download ────────────────────────────────────────────────────────────────
   async function handleDownload(destination: "drive" | "local") {
     if (!selectedFeed) return;
     setPageState("downloading");
@@ -88,7 +86,6 @@ export default function Home() {
       .filter(({ i }) => selected[i]);
 
     for (const { ep, i } of toDownload) {
-      // Mark as downloading
       setEpisodes((prev) => {
         const next = [...prev];
         next[i] = { ...next[i], status: "downloading" };
@@ -97,7 +94,6 @@ export default function Home() {
 
       try {
         if (destination === "local") {
-          // Local: streaming blob download
           const res = await fetch("/api/download", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -113,15 +109,12 @@ export default function Home() {
             throw new Error(err.error ?? "Download failed");
           }
 
-          // Trigger browser save-file dialog
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           const cd = res.headers.get("Content-Disposition") ?? "";
           const fnMatch = cd.match(/filename="([^"]+)"/);
-          a.download = fnMatch
-            ? decodeURIComponent(fnMatch[1])
-            : `${ep.title}.mp3`;
+          a.download = fnMatch ? decodeURIComponent(fnMatch[1]) : `${ep.title}.mp3`;
           a.href = url;
           document.body.appendChild(a);
           a.click();
@@ -134,7 +127,6 @@ export default function Home() {
             return next;
           });
         } else {
-          // Drive upload
           const res = await fetch("/api/download", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -170,7 +162,6 @@ export default function Home() {
         });
       }
 
-      // Small delay between requests to be polite to YUTorah's servers
       if (i < toDownload[toDownload.length - 1].i) {
         await new Promise((r) => setTimeout(r, 800));
       }
@@ -179,121 +170,107 @@ export default function Home() {
     setPageState("ready");
   }
 
-  // ─── Summary counts ──────────────────────────────────────────────────────────
   const doneCount = episodes.filter(
     (e) => e.status === "done_drive" || e.status === "done_local"
   ).length;
   const errorCount = episodes.filter((e) => e.status === "error").length;
 
   return (
-    <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-      {/* ─── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            YUTorah Downloader
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            Download shiurim to Google Drive or your device
-          </p>
-        </div>
-        <AuthButton />
-      </div>
-
-      {/* ─── Auth notice ─────────────────────────────────────────────────────── */}
-      {!isAuthenticated && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
-          Sign in with Google to save shiurim to your Drive. You can still
-          download locally without signing in.
-        </div>
-      )}
-
-      {/* ─── Session error notice ────────────────────────────────────────────── */}
-      {session?.error === "RefreshAccessTokenError" && (
-        <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-700/50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-800 dark:text-red-200">
-          Your Google session expired. Please sign out and sign in again.
-        </div>
-      )}
-
-      {/* ─── Feed selector ───────────────────────────────────────────────────── */}
-      <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-          Feed
-        </h2>
-        <FeedSelector selectedFeed={selectedFeed} onSelect={setSelectedFeed} />
-
-        <button
-          onClick={handleCheck}
-          disabled={!selectedFeed || pageState === "checking" || pageState === "downloading"}
-          className="mt-1 w-full sm:w-auto px-5 py-2.5 rounded-md bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          {pageState === "checking" ? (
-            <span className="flex items-center gap-2">
-              <span className="animate-spin">⟳</span> Checking…
-            </span>
-          ) : (
-            "Check for new episodes"
-          )}
-        </button>
-
-        {checkError && (
-          <p className="text-sm text-red-500">{checkError}</p>
-        )}
-      </section>
-
-      {/* ─── Results ─────────────────────────────────────────────────────────── */}
-      {(pageState === "ready" || pageState === "downloading") && (
-        <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-              Episodes
-            </h2>
-            {totalInFeed !== null && (
-              <span className="text-xs text-gray-400 dark:text-gray-500">
-                {episodes.length} new / {totalInFeed} total in feed
-              </span>
-            )}
-          </div>
-
-          {episodes.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">
-              ✓ All caught up — no new episodes.
+    <main className="mx-auto max-w-5xl px-4 py-8">
+      <div className="space-y-6 rounded-3xl border border-[#142c54]/15 bg-white/55 p-5 shadow-lg backdrop-blur-sm sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#142c54]/60">
+              YUTorah Podcast Toolkit
             </p>
-          ) : (
-            <EpisodeList
-              episodes={episodes}
-              onToggle={handleToggle}
-              selected={selected}
-              onSelectAll={handleSelectAll}
-              onClearAll={handleClearAll}
-              onDownload={handleDownload}
-              isDownloading={pageState === "downloading"}
-              isAuthenticated={isAuthenticated}
-            />
-          )}
+            <h1 className="mt-1 text-3xl font-bold text-[#142c54]">YUTorah Downloader</h1>
+            <p className="mt-1 text-sm text-[#142c54]/75">
+              Find the latest shiurim and save them to Drive or download locally.
+            </p>
+          </div>
+          <AuthButton />
+        </div>
 
-          {/* Summary after downloads */}
-          {(doneCount > 0 || errorCount > 0) && pageState === "ready" && (
-            <div className="flex gap-4 pt-2 border-t border-gray-100 dark:border-gray-700">
-              {doneCount > 0 && (
-                <span className="text-sm text-green-600 dark:text-green-400">
-                  ✓ {doneCount} saved
-                </span>
-              )}
-              {errorCount > 0 && (
-                <span className="text-sm text-red-500">
-                  ✕ {errorCount} failed — hover the status badge for details
+        {!isAuthenticated && (
+          <div className="rounded-xl border border-[#f43126]/30 bg-[#f43126]/10 px-4 py-3 text-sm text-[#142c54]">
+            Connect Google only if you want one-click Drive uploads. Local downloads are available without signing in.
+          </div>
+        )}
+
+        {session?.error === "RefreshAccessTokenError" && (
+          <div className="rounded-xl border border-[#f43126]/35 bg-[#f43126]/10 px-4 py-3 text-sm text-[#f43126]">
+            Your Google session expired. Please sign out and sign in again.
+          </div>
+        )}
+
+        <section className="space-y-4 rounded-2xl border border-[#142c54]/15 bg-[#ede0bc]/40 p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-[#142c54]/70">Feed</h2>
+          <FeedSelector selectedFeed={selectedFeed} onSelect={setSelectedFeed} />
+
+          <button
+            onClick={handleCheck}
+            disabled={!selectedFeed || pageState === "checking" || pageState === "downloading"}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#142c54] px-5 py-3 text-sm font-semibold text-[#ede0bc] transition hover:bg-[#102346] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
+          >
+            {pageState === "checking" ? (
+              <>
+                <SpinnerIcon className="h-4 w-4 animate-spin" />
+                Checking feed…
+              </>
+            ) : (
+              <>
+                <DownloadSimpleIcon className="h-4 w-4" />
+                Check for new episodes
+              </>
+            )}
+          </button>
+
+          {checkError && <p className="text-sm text-[#f43126]">{checkError}</p>}
+        </section>
+
+        {(pageState === "ready" || pageState === "downloading") && (
+          <section className="space-y-3 rounded-2xl border border-[#142c54]/15 bg-[#ede0bc]/25 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#142c54]/70">Episodes</h2>
+              {totalInFeed !== null && (
+                <span className="rounded-full bg-white/70 px-3 py-1 text-xs text-[#142c54]/70">
+                  {episodes.length} new / {totalInFeed} total
                 </span>
               )}
             </div>
-          )}
-        </section>
-      )}
 
-      {/* ─── Footer ──────────────────────────────────────────────────────────── */}
-      <footer className="text-center text-xs text-gray-400 dark:text-gray-600 pb-4">
-        Downloads public shiurim from YUTorah · No YUTorah account required
-      </footer>
+            {episodes.length === 0 ? (
+              <p className="rounded-xl bg-white/80 py-6 text-center text-sm text-[#142c54]/70">
+                You&apos;re all caught up — no new episodes.
+              </p>
+            ) : (
+              <EpisodeList
+                episodes={episodes}
+                onToggle={handleToggle}
+                selected={selected}
+                onSelectAll={handleSelectAll}
+                onClearAll={handleClearAll}
+                onDownload={handleDownload}
+                isDownloading={pageState === "downloading"}
+                isAuthenticated={isAuthenticated}
+              />
+            )}
+
+            {(doneCount > 0 || errorCount > 0) && pageState === "ready" && (
+              <div className="flex flex-wrap gap-3 border-t border-[#142c54]/15 pt-3 text-sm">
+                {doneCount > 0 && <span className="text-emerald-700">{doneCount} saved successfully</span>}
+                {errorCount > 0 && (
+                  <span className="text-[#f43126]">{errorCount} failed — hover badges for details</span>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        <footer className="text-center text-xs text-[#142c54]/60">
+          Downloads public shiurim from YUTorah · No YUTorah account required
+        </footer>
+      </div>
     </main>
   );
 }

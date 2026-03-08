@@ -1,7 +1,8 @@
-"use client";
-
-import { useState, useCallback } from "react";
-import { Episode } from "@/lib/rss";
+import {
+  DownloadSimpleIcon,
+  SpinnerIcon,
+  UploadSimpleIcon,
+} from "@/components/icons";
 
 export type EpisodeStatus =
   | "idle"
@@ -10,7 +11,10 @@ export type EpisodeStatus =
   | "done_local"
   | "error";
 
-export interface EpisodeWithStatus extends Episode {
+export interface EpisodeWithStatus {
+  title: string;
+  pageUrl: string;
+  shiurId: string | null;
   status: EpisodeStatus;
   driveLink?: string;
   errorMessage?: string;
@@ -18,8 +22,8 @@ export interface EpisodeWithStatus extends Episode {
 
 interface EpisodeListProps {
   episodes: EpisodeWithStatus[];
-  onToggle: (index: number, checked: boolean) => void;
   selected: boolean[];
+  onToggle: (index: number, checked: boolean) => void;
   onSelectAll: () => void;
   onClearAll: () => void;
   onDownload: (destination: "drive" | "local") => void;
@@ -40,40 +44,36 @@ export default function EpisodeList({
   const selectedCount = selected.filter(Boolean).length;
 
   return (
-    <div className="space-y-3">
-      {/* Bulk actions */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex gap-2">
           <button
             onClick={onSelectAll}
-            className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="rounded-full border border-[#142c54]/30 px-3 py-1.5 text-xs font-medium text-[#142c54] transition hover:bg-[#ede0bc]/40"
           >
             Select all
           </button>
           <button
             onClick={onClearAll}
-            className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="rounded-full border border-[#142c54]/20 px-3 py-1.5 text-xs font-medium text-[#142c54]/70 transition hover:bg-[#ede0bc]/40"
           >
             Clear
           </button>
         </div>
-        <span className="text-sm text-gray-500 dark:text-gray-400">
+        <span className="text-sm text-[#142c54]/70">
           {selectedCount} of {episodes.length} selected
         </span>
       </div>
 
-      {/* Episode table */}
-      <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-        {/* Header */}
-        <div className="grid grid-cols-[2rem_1fr_6rem_7rem] gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+      <div className="overflow-hidden rounded-xl border border-[#142c54]/15 bg-white/85 shadow-sm">
+        <div className="grid grid-cols-[2rem_1fr_6rem_8.5rem] gap-2 bg-[#142c54]/5 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#142c54]/70">
           <span />
           <span>Title</span>
           <span>Shiur ID</span>
           <span>Status</span>
         </div>
 
-        {/* Rows */}
-        <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
+        <div className="divide-y divide-[#142c54]/10">
           {episodes.map((ep, i) => (
             <EpisodeRow
               key={ep.pageUrl}
@@ -85,23 +85,24 @@ export default function EpisodeList({
         </div>
       </div>
 
-      {/* Download buttons */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex flex-wrap gap-2">
         {isAuthenticated && (
           <button
             onClick={() => onDownload("drive")}
             disabled={selectedCount === 0 || isDownloading}
-            className="flex-1 sm:flex-none px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#142c54] px-4 py-2 text-sm font-semibold text-[#ede0bc] transition hover:bg-[#102346] disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
           >
-            {isDownloading ? "Downloading…" : `↑ Drive (${selectedCount})`}
+            <UploadSimpleIcon className="h-4 w-4" />
+            {isDownloading ? "Saving…" : `Save to Drive (${selectedCount})`}
           </button>
         )}
         <button
           onClick={() => onDownload("local")}
           disabled={selectedCount === 0 || isDownloading}
-          className="flex-1 sm:flex-none px-4 py-2 rounded-md bg-gray-700 text-white text-sm font-medium hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#f43126] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#df2b20] disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
         >
-          {isDownloading ? "Downloading…" : `⬇ Local (${selectedCount})`}
+          <DownloadSimpleIcon className="h-4 w-4" />
+          {isDownloading ? "Downloading…" : `Download local (${selectedCount})`}
         </button>
       </div>
     </div>
@@ -121,42 +122,37 @@ function EpisodeRow({
     switch (episode.status) {
       case "downloading":
         return (
-          <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
-            <span className="animate-spin">⟳</span> Working
+          <span className="inline-flex items-center gap-1 text-xs text-[#142c54]">
+            <SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> Working
           </span>
         );
       case "done_drive":
         return (
           <span className="flex items-center gap-1">
-            <span className="text-xs text-green-600 dark:text-green-400">✓ Drive</span>
+            <span className="text-xs font-medium text-emerald-700">Saved to Drive</span>
             {episode.driveLink && (
               <a
                 href={episode.driveLink}
                 target="_blank"
                 rel="noreferrer"
-                className="text-xs text-blue-500 hover:underline"
+                className="text-xs text-[#142c54] underline-offset-2 hover:underline"
               >
-                Open ↗
+                Open
               </a>
             )}
           </span>
         );
       case "done_local":
-        return (
-          <span className="text-xs text-green-600 dark:text-green-400">✓ Saved</span>
-        );
+        return <span className="text-xs font-medium text-emerald-700">Saved local</span>;
       case "error":
         return (
-          <span
-            title={episode.errorMessage}
-            className="text-xs text-red-500 cursor-help"
-          >
-            ✕ Failed
+          <span title={episode.errorMessage} className="cursor-help text-xs text-[#f43126]">
+            Failed
           </span>
         );
       default:
         return (
-          <span className="text-xs text-gray-400 dark:text-gray-500 rounded-full px-2 py-0.5 border border-gray-200 dark:border-gray-600">
+          <span className="rounded-full border border-[#142c54]/20 px-2 py-0.5 text-xs text-[#142c54]/65">
             New
           </span>
         );
@@ -164,25 +160,21 @@ function EpisodeRow({
   };
 
   return (
-    <div className="grid grid-cols-[2rem_1fr_6rem_7rem] gap-2 px-3 py-2.5 items-center hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+    <div className="grid grid-cols-[2rem_1fr_6rem_8.5rem] items-center gap-2 px-3 py-2.5 transition hover:bg-[#ede0bc]/20">
       <input
         type="checkbox"
         checked={checked}
         onChange={(e) => onToggle(e.target.checked)}
         disabled={episode.status === "downloading"}
-        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+        className="h-4 w-4 cursor-pointer rounded border-[#142c54]/40 text-[#f43126] focus:ring-[#f43126]"
       />
       <div className="min-w-0">
-        <p className="text-sm text-gray-800 dark:text-gray-200 truncate" title={episode.title}>
+        <p className="truncate text-sm text-[#142c54]" title={episode.title}>
           {episode.title || "(untitled)"}
         </p>
-        <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
-          {episode.pageUrl}
-        </p>
+        <p className="truncate text-xs text-[#142c54]/50">{episode.pageUrl}</p>
       </div>
-      <span className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
-        {episode.shiurId ?? "—"}
-      </span>
+      <span className="truncate font-mono text-xs text-[#142c54]/70">{episode.shiurId ?? "—"}</span>
       <div>{statusBadge()}</div>
     </div>
   );
