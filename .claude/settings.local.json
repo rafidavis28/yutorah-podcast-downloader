@@ -6,7 +6,13 @@
       "Bash(npx next build)",
       "mcp__Claude_Preview__preview_start",
       "Bash(node --version)",
-      "Bash(git add web/ .claude/)"
+      "Bash(git add web/ .claude/)",
+      "Bash(git add web/src/lib/)",
+      "Bash(git check-ignore -v web/src/lib/drive.ts)",
+      "Bash(git add .gitignore web/src/lib/)",
+      "Bash(git commit:*)",
+      "Bash(git push origin claude/intelligent-knuth)",
+      "Bash(git add .claude/settings.local.json)"
     ]
   }
 }
