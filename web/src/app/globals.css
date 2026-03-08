@@ -1,21 +1,19 @@
+@import url("https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --brand-navy: #142c54;
+  --brand-sand: #ede0bc;
+  --brand-coral: #f43126;
+  --background: #ede0bc;
+  --foreground: #142c54;
 }
 
 body {
   color: var(--foreground);
-  background: var(--background);
+  background: radial-gradient(circle at top, #f4ecd2 0%, var(--background) 45%);
   font-family: system-ui, -apple-system, sans-serif;
 }

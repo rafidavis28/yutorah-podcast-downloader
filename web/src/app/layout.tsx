@@ -17,7 +17,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <body className="min-h-screen">
         <SessionProvider session={session}>{children}</SessionProvider>
       </body>
     </html>
