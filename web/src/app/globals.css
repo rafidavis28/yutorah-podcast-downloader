@@ -3,19 +3,16 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #ede0bc;
+  --foreground: #142c54;
 }
 
 body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(244, 49, 38, 0.12), transparent 42%),
+    radial-gradient(circle at 90% 0%, rgba(20, 44, 84, 0.1), transparent 35%),
+    var(--background);
   color: var(--foreground);
-  background: var(--background);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
 }

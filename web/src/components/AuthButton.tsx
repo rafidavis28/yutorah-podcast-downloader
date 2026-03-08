@@ -6,25 +6,23 @@ export default function AuthButton() {
   const { data: session, status } = useSession();
 
   if (status === "loading") {
-    return (
-      <div className="h-8 w-40 bg-gray-200 dark:bg-gray-700 animate-pulse rounded-md" />
-    );
+    return <div className="h-10 w-44 animate-pulse rounded-xl bg-[#142c54]/15" />;
   }
 
   if (session) {
     return (
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-gray-600 dark:text-gray-400 hidden sm:block">
+      <div className="flex items-center gap-3 rounded-xl border border-[#142c54]/20 bg-white/80 px-3 py-2 shadow-sm backdrop-blur">
+        <span className="hidden max-w-56 truncate text-sm text-[#142c54]/80 sm:block">
           {session.user?.email}
         </span>
         {session.error === "RefreshAccessTokenError" && (
-          <span className="text-xs text-amber-600 dark:text-amber-400">
-            ⚠ Re-auth needed
+          <span className="rounded-full bg-[#f43126]/10 px-2 py-0.5 text-xs font-medium text-[#f43126]">
+            Re-auth needed
           </span>
         )}
         <button
           onClick={() => signOut()}
-          className="text-sm px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          className="rounded-lg border border-[#142c54]/25 px-3 py-1.5 text-sm font-medium text-[#142c54] transition hover:bg-[#142c54]/5"
         >
           Sign out
         </button>
@@ -34,12 +32,10 @@ export default function AuthButton() {
 
   return (
     <button
-      onClick={() =>
-        signIn("google", { callbackUrl: window.location.href })
-      }
-      className="flex items-center gap-2 px-4 py-2 rounded-md bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm text-sm font-medium"
+      onClick={() => signIn("google", { callbackUrl: window.location.href })}
+      className="flex items-center gap-2 rounded-xl border border-[#142c54]/25 bg-white px-4 py-2 text-sm font-semibold text-[#142c54] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#ede0bc]/35"
     >
-      <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
+      <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
         <path
           d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
           fill="#4285F4"
