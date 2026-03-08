@@ -23,6 +23,7 @@ export interface EpisodeData {
   dateText: string | null;
   failureReason?: string;
   strategiesAttempted: string[];
+  strategyMarkers?: Record<string, Record<string, number | boolean | string>>;
 }
 
 type AudioFields = {
@@ -100,6 +101,20 @@ export async function getMp3UrlFromPage(
     dateText: null,
     failureReason: "no_supported_audio_payload_found",
     strategiesAttempted: attempted,
+    strategyMarkers: {
+      lecturePlayerData: {
+        found: /var\s+lecturePlayerData\s*=/.test(html),
+      },
+      nextData: {
+        found: /id=["']__NEXT_DATA__["']/.test(html),
+      },
+      scriptBlobs: {
+        downloadUrlMentions: (html.match(/downloadURL/gi) ?? []).length,
+      },
+      audioTags: {
+        audioTagCount: (html.match(/<audio\b/gi) ?? []).length,
+      },
+    },
   };
 }
 
@@ -179,10 +194,9 @@ function extractFromScriptBlobs(html: string): AudioFields | null {
   }
 
   // Fallback: raw MP3 URL scan
-  const mp3Pattern = /https?:\/\/[^"'\s>]+\.mp3(?:\?[^"'\s>]*)?/gi;
-  const mp3Matches = html.match(mp3Pattern);
-  if (mp3Matches?.length) {
-    return { downloadURL: mp3Matches[0], playerDownloadURL: mp3Matches[0] };
+  const audioUrl = findAudioUrlInText(html);
+  if (audioUrl) {
+    return { downloadURL: audioUrl, playerDownloadURL: audioUrl };
   }
 
   return null;
@@ -202,10 +216,16 @@ function extractFromAudioTags(html: string): AudioFields | null {
     while ((m = pattern.exec(html)) !== null) candidates.push(m[1]);
   }
 
-  const mp3 = candidates.find((u) => u.toLowerCase().includes(".mp3"));
-  if (mp3) return { downloadURL: mp3, playerDownloadURL: mp3 };
-  if (candidates[0])
-    return { downloadURL: candidates[0], playerDownloadURL: candidates[0] };
+  const firstAudioUrl = candidates
+    .map((candidate) => normalizeCandidateUrl(candidate))
+    .find((url): url is string => Boolean(url && isLikelyAudioUrl(url)));
+
+  if (firstAudioUrl) {
+    return { downloadURL: firstAudioUrl, playerDownloadURL: firstAudioUrl };
+  }
+
+  const fallback = normalizeCandidateUrl(candidates[0]);
+  if (fallback) return { downloadURL: fallback, playerDownloadURL: fallback };
 
   return null;
 }
@@ -247,8 +267,11 @@ function walkForAudioFields(data: unknown, results: AudioFields): void {
         results.teacherName ??= value;
       }
 
-      if (typeof value === "string" && value.toLowerCase().endsWith(".mp3")) {
-        results.downloadURL ??= value;
+      if (typeof value === "string") {
+        const normalized = normalizeCandidateUrl(value);
+        if (normalized && isLikelyAudioUrl(normalized)) {
+          results.downloadURL ??= normalized;
+        }
       }
 
       walkForAudioFields(value, results);
@@ -288,11 +311,43 @@ function normalizeEpisodeData(
 }
 
 function normalizeAudioUrl(urlText: string | null, pageUrl: string): string | null {
-  if (!urlText) return null;
+  const normalizedCandidate = normalizeCandidateUrl(urlText);
+  if (!normalizedCandidate) return null;
   try {
-    const absolute = new URL(urlText, pageUrl).toString();
+    const absolute = new URL(normalizedCandidate, pageUrl).toString();
     return normalizeYutorahUrl(absolute);
   } catch {
-    return normalizeYutorahUrl(urlText);
+    return normalizeYutorahUrl(normalizedCandidate);
   }
+}
+
+function findAudioUrlInText(text: string): string | null {
+  const patterns = [
+    /https?:\/\/[^"'\s>]+\.(?:mp3|m4a|aac|ogg|wav)(?:\?[^"'\s>]*)?/gi,
+    /https?:\\\/\\\/[^"'\s>]+\.(?:mp3|m4a|aac|ogg|wav)(?:\?[^"'\s>]*)?/gi,
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(text)?.[0];
+    const normalized = normalizeCandidateUrl(match);
+    if (normalized && isLikelyAudioUrl(normalized)) return normalized;
+  }
+
+  return null;
+}
+
+function normalizeCandidateUrl(urlText: string | null | undefined): string | null {
+  if (!urlText) return null;
+
+  const trimmed = urlText.trim();
+  if (!trimmed) return null;
+
+  const withSlashes = trimmed.replace(/\\\//g, "/");
+  const withQuotes = withSlashes.replace(/\\u0022/gi, '"').replace(/&amp;/gi, "&");
+
+  return withQuotes;
+}
+
+function isLikelyAudioUrl(urlText: string): boolean {
+  return /\.(?:mp3|m4a|aac|ogg|wav)(?:[?#]|$)/i.test(urlText);
 }

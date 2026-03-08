@@ -42,6 +42,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       {
         error: `Could not find MP3 URL for "${episode.title}": ${episodeData.failureReason ?? "unknown"}`,
         strategiesAttempted: episodeData.strategiesAttempted,
+        strategyMarkers: episodeData.strategyMarkers,
+        pageUrl: episode.pageUrl,
       },
       { status: 422 }
     );

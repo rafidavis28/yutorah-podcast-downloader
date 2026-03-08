@@ -10,6 +10,29 @@ import { DownloadSimpleIcon, SpinnerIcon } from "@/components/icons";
 
 type PageState = "idle" | "checking" | "ready" | "downloading";
 
+function formatDownloadApiError(data: unknown, fallback: string): string {
+  if (!data || typeof data !== "object") return fallback;
+
+  const typed = data as {
+    error?: string;
+    strategiesAttempted?: string[];
+    strategyMarkers?: Record<string, Record<string, number | boolean | string>>;
+  };
+
+  const pieces: string[] = [];
+  if (typed.error) pieces.push(typed.error);
+
+  if (typed.strategiesAttempted?.length) {
+    pieces.push(`strategies: ${typed.strategiesAttempted.join(" -> ")}`);
+  }
+
+  if (typed.strategyMarkers && Object.keys(typed.strategyMarkers).length > 0) {
+    pieces.push(`markers: ${JSON.stringify(typed.strategyMarkers)}`);
+  }
+
+  return pieces.join(" | ") || fallback;
+}
+
 export default function Home() {
   const { data: session } = useSession();
   const isAuthenticated = !!session?.accessToken;
@@ -105,8 +128,8 @@ export default function Home() {
           });
 
           if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error ?? "Download failed");
+            const err = await res.json().catch(() => null);
+            throw new Error(formatDownloadApiError(err, "Download failed"));
           }
 
           const blob = await res.blob();
@@ -137,15 +160,15 @@ export default function Home() {
             }),
           });
 
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error ?? "Upload failed");
+          const data = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(formatDownloadApiError(data, "Upload failed"));
 
           setEpisodes((prev) => {
             const next = [...prev];
             next[i] = {
               ...next[i],
               status: "done_drive",
-              driveLink: data.webViewLink,
+              driveLink: (data as { webViewLink?: string } | null)?.webViewLink,
             };
             return next;
           });
