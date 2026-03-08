@@ -13,7 +13,9 @@ export interface Episode {
 export async function fetchRSSFeed(
   rssUrl: string
 ): Promise<{ title: string; link: string }[]> {
-  const response = await fetch(rssUrl, {
+  const normalizedRssUrl = normalizeYutorahUrl(rssUrl);
+
+  const response = await fetch(normalizedRssUrl, {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -51,7 +53,10 @@ export async function fetchRSSFeed(
         : (linkRaw ?? "");
 
     if (link) {
-      episodes.push({ title: title.trim(), link: link.trim() });
+      episodes.push({
+        title: title.trim(),
+        link: normalizeYutorahUrl(link.trim()),
+      });
     }
   }
 
@@ -84,6 +89,23 @@ export function extractShiurId(pageUrl: string): string | null {
   if (match) return match[1];
 
   return null;
+}
+
+/**
+ * Force YUTorah URLs onto HTTPS to avoid 403 responses served on HTTP.
+ */
+export function normalizeYutorahUrl(urlText: string): string {
+  if (!urlText) return urlText;
+  try {
+    const url = new URL(urlText);
+    if (url.hostname.endsWith("yutorah.org") && url.protocol === "http:") {
+      url.protocol = "https:";
+      return url.toString();
+    }
+    return url.toString();
+  } catch {
+    return urlText;
+  }
 }
 
 /**

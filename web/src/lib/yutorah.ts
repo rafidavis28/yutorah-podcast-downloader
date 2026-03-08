@@ -9,7 +9,7 @@
  * D: <audio> / <source> tags
  */
 
-import { extractShiurId } from "./rss";
+import { extractShiurId, normalizeYutorahUrl } from "./rss";
 
 export interface EpisodeData {
   downloadURL: string | null;
@@ -41,9 +41,11 @@ type AudioFields = {
 export async function getMp3UrlFromPage(
   pageUrl: string
 ): Promise<EpisodeData> {
+  const normalizedPageUrl = normalizeYutorahUrl(pageUrl);
+
   let html: string;
   try {
-    const response = await fetch(pageUrl, {
+    const response = await fetch(normalizedPageUrl, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -57,7 +59,7 @@ export async function getMp3UrlFromPage(
     return {
       downloadURL: null,
       playerDownloadURL: null,
-      shiurId: extractShiurId(pageUrl),
+      shiurId: extractShiurId(normalizedPageUrl),
       title: null,
       duration: null,
       durationSeconds: null,
@@ -82,14 +84,14 @@ export async function getMp3UrlFromPage(
     attempted.push(name);
     const result = strategy(html);
     if (result?.downloadURL || result?.playerDownloadURL) {
-      return normalizeEpisodeData(result, pageUrl, attempted);
+      return normalizeEpisodeData(result, normalizedPageUrl, attempted);
     }
   }
 
   return {
     downloadURL: null,
     playerDownloadURL: null,
-    shiurId: extractShiurId(pageUrl),
+    shiurId: extractShiurId(normalizedPageUrl),
     title: null,
     duration: null,
     durationSeconds: null,
@@ -255,9 +257,18 @@ function normalizeEpisodeData(
   pageUrl: string,
   strategiesAttempted: string[]
 ): EpisodeData {
+  const normalizedDownloadUrl = normalizeAudioUrl(
+    data.downloadURL ?? data.playerDownloadURL ?? null,
+    pageUrl
+  );
+  const normalizedPlayerDownloadUrl = normalizeAudioUrl(
+    data.playerDownloadURL ?? data.downloadURL ?? null,
+    pageUrl
+  );
+
   return {
-    downloadURL: data.downloadURL ?? data.playerDownloadURL ?? null,
-    playerDownloadURL: data.playerDownloadURL ?? data.downloadURL ?? null,
+    downloadURL: normalizedDownloadUrl,
+    playerDownloadURL: normalizedPlayerDownloadUrl,
     shiurId:
       data.shiurID != null ? String(data.shiurID) : extractShiurId(pageUrl),
     title: data.title ?? null,
@@ -268,4 +279,14 @@ function normalizeEpisodeData(
     dateText: data.dateText ?? null,
     strategiesAttempted,
   };
+}
+
+function normalizeAudioUrl(urlText: string | null, pageUrl: string): string | null {
+  if (!urlText) return null;
+  try {
+    const absolute = new URL(urlText, pageUrl).toString();
+    return normalizeYutorahUrl(absolute);
+  } catch {
+    return normalizeYutorahUrl(urlText);
+  }
 }
