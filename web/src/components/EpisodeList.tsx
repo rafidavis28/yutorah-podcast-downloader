@@ -66,7 +66,7 @@ export default function EpisodeList({
       </div>
 
       <div className="overflow-hidden rounded-xl border border-[#142c54]/15 bg-white/85 shadow-sm">
-        <div className="grid grid-cols-[2rem_1fr_6rem_8.5rem] gap-2 bg-[#142c54]/5 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#142c54]/70">
+        <div className="grid grid-cols-[2rem_1fr_6rem_12rem] gap-2 bg-[#142c54]/5 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#142c54]/70">
           <span />
           <span>Title</span>
           <span>Shiur ID</span>
@@ -146,9 +146,14 @@ function EpisodeRow({
         return <span className="text-xs font-medium text-emerald-700">Saved local</span>;
       case "error":
         return (
-          <span title={episode.errorMessage} className="cursor-help text-xs text-[#f43126]">
-            Failed
-          </span>
+          <div className="max-w-full">
+            <span className="text-xs font-medium text-[#f43126]">Failed</span>
+            {episode.errorMessage && (
+              <p className="mt-0.5 break-words text-[11px] leading-4 text-[#f43126]/90" title={episode.errorMessage}>
+                {episode.errorMessage}
+              </p>
+            )}
+          </div>
         );
       default:
         return (
@@ -160,7 +165,7 @@ function EpisodeRow({
   };
 
   return (
-    <div className="grid grid-cols-[2rem_1fr_6rem_8.5rem] items-center gap-2 px-3 py-2.5 transition hover:bg-[#ede0bc]/20">
+    <div className="grid grid-cols-[2rem_1fr_6rem_12rem] items-center gap-2 px-3 py-2.5 transition hover:bg-[#ede0bc]/20">
       <input
         type="checkbox"
         checked={checked}
