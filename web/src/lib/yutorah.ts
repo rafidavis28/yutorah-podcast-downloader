@@ -9,7 +9,7 @@
  * D: <audio> / <source> tags
  */
 
-import { extractShiurId } from "./rss";
+import { extractShiurId, normalizeYutorahUrl } from "./rss";
 
 export interface EpisodeData {
   downloadURL: string | null;
@@ -41,9 +41,11 @@ type AudioFields = {
 export async function getMp3UrlFromPage(
   pageUrl: string
 ): Promise<EpisodeData> {
+  const normalizedPageUrl = normalizeYutorahUrl(pageUrl);
+
   let html: string;
   try {
-    const response = await fetch(pageUrl, {
+    const response = await fetch(normalizedPageUrl, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -57,7 +59,7 @@ export async function getMp3UrlFromPage(
     return {
       downloadURL: null,
       playerDownloadURL: null,
-      shiurId: extractShiurId(pageUrl),
+      shiurId: extractShiurId(normalizedPageUrl),
       title: null,
       duration: null,
       durationSeconds: null,
@@ -82,14 +84,14 @@ export async function getMp3UrlFromPage(
     attempted.push(name);
     const result = strategy(html);
     if (result?.downloadURL || result?.playerDownloadURL) {
-      return normalizeEpisodeData(result, pageUrl, attempted);
+      return normalizeEpisodeData(result, normalizedPageUrl, attempted);
     }
   }
 
   return {
     downloadURL: null,
     playerDownloadURL: null,
-    shiurId: extractShiurId(pageUrl),
+    shiurId: extractShiurId(normalizedPageUrl),
     title: null,
     duration: null,
     durationSeconds: null,
@@ -129,14 +131,19 @@ function extractFromLecturePlayerData(html: string): AudioFields | null {
 // ─── Strategy B: __NEXT_DATA__ ──────────────────────────────────────────────
 
 function extractFromNextData(html: string): AudioFields | null {
-  // Extract all <script type="application/json"> blocks
+  // Extract all JSON script tags and find the __NEXT_DATA__ payload.
+  // Attribute order varies across deployments, so capture attrs separately.
   const scriptPattern =
-    /<script[^>]*?(?:id="([^"]+)")?[^>]*?type="application\/json"[^>]*>([\s\S]*?)<\/script>/gi;
+    /<script([^>]*?)type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi;
+
   let m: RegExpExecArray | null;
   while ((m = scriptPattern.exec(html)) !== null) {
-    if (m[1] !== "__NEXT_DATA__") continue;
+    const attrs = m[1] ?? "";
+    const idMatch = attrs.match(/\bid=["']([^"']+)["']/i);
+    if (idMatch?.[1] !== "__NEXT_DATA__") continue;
+
     try {
-      const payload = JSON.parse(m[2].trim());
+      const payload = JSON.parse((m[2] ?? "").trim());
       const results: AudioFields = {};
       walkForAudioFields(payload, results);
       if (results.downloadURL || results.playerDownloadURL) return results;
@@ -144,6 +151,7 @@ function extractFromNextData(html: string): AudioFields | null {
       // continue
     }
   }
+
   return null;
 }
 
@@ -255,9 +263,18 @@ function normalizeEpisodeData(
   pageUrl: string,
   strategiesAttempted: string[]
 ): EpisodeData {
+  const normalizedDownloadUrl = normalizeAudioUrl(
+    data.downloadURL ?? data.playerDownloadURL ?? null,
+    pageUrl
+  );
+  const normalizedPlayerDownloadUrl = normalizeAudioUrl(
+    data.playerDownloadURL ?? data.downloadURL ?? null,
+    pageUrl
+  );
+
   return {
-    downloadURL: data.downloadURL ?? data.playerDownloadURL ?? null,
-    playerDownloadURL: data.playerDownloadURL ?? data.downloadURL ?? null,
+    downloadURL: normalizedDownloadUrl,
+    playerDownloadURL: normalizedPlayerDownloadUrl,
     shiurId:
       data.shiurID != null ? String(data.shiurID) : extractShiurId(pageUrl),
     title: data.title ?? null,
@@ -268,4 +285,14 @@ function normalizeEpisodeData(
     dateText: data.dateText ?? null,
     strategiesAttempted,
   };
+}
+
+function normalizeAudioUrl(urlText: string | null, pageUrl: string): string | null {
+  if (!urlText) return null;
+  try {
+    const absolute = new URL(urlText, pageUrl).toString();
+    return normalizeYutorahUrl(absolute);
+  } catch {
+    return normalizeYutorahUrl(urlText);
+  }
 }

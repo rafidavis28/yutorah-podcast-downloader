@@ -19,7 +19,7 @@ from urllib.parse import urljoin, urlparse, parse_qs
 import requests
 
 # Default RSS feed URL
-DEFAULT_RSS_URL = "http://www.yutorah.org/rss/RssAudioOnly/teacher/80307"
+DEFAULT_RSS_URL = "https://www.yutorah.org/rss/RssAudioOnly/teacher/80307"
 
 # Session for HTTP requests
 session = requests.Session()
