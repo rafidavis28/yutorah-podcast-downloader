@@ -69,7 +69,7 @@ export default function Home() {
       }
 
       const eps: EpisodeWithStatus[] = (data.newEpisodes ?? []).map(
-        (ep: { title: string; pageUrl: string; shiurId: string | null }) => ({
+        (ep: { title: string; pageUrl: string; shiurId: string | null; audioUrl: string | null }) => ({
           ...ep,
           status: "idle" as const,
         })

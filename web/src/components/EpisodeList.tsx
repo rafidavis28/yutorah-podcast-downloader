@@ -15,6 +15,7 @@ export interface EpisodeWithStatus {
   title: string;
   pageUrl: string;
   shiurId: string | null;
+  audioUrl?: string | null;
   status: EpisodeStatus;
   driveLink?: string;
   errorMessage?: string;

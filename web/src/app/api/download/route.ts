@@ -10,6 +10,7 @@ interface DownloadRequest {
     title: string;
     pageUrl: string;
     shiurId: string | null;
+    audioUrl?: string | null;
   };
   destination: "drive" | "local";
   feedName: string;
@@ -34,23 +35,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     useSubfolders = true,
   } = body;
 
-  // 1. Find the MP3 URL from the YUTorah episode page
-  const episodeData = await getMp3UrlFromPage(episode.pageUrl);
+  // 1. Resolve MP3 URL (prefer RSS enclosure; fallback to page extraction)
+  let mp3Url = episode.audioUrl ?? null;
+  let shiurId = episode.shiurId;
 
-  if (!episodeData.downloadURL) {
-    return NextResponse.json(
-      {
-        error: `Could not find MP3 URL for "${episode.title}": ${episodeData.failureReason ?? "unknown"}`,
-        strategiesAttempted: episodeData.strategiesAttempted,
-        strategyMarkers: episodeData.strategyMarkers,
-        pageUrl: episode.pageUrl,
-      },
-      { status: 422 }
-    );
+  if (!mp3Url) {
+    const episodeData = await getMp3UrlFromPage(episode.pageUrl);
+
+    if (!episodeData.downloadURL) {
+      return NextResponse.json(
+        {
+          error: `Could not find MP3 URL for "${episode.title}": ${episodeData.failureReason ?? "unknown"}`,
+          strategiesAttempted: episodeData.strategiesAttempted,
+          strategyMarkers: episodeData.strategyMarkers,
+          pageUrl: episode.pageUrl,
+        },
+        { status: 422 }
+      );
+    }
+
+    mp3Url = episodeData.downloadURL;
+    shiurId = episodeData.shiurId ?? episode.shiurId;
   }
-
-  const mp3Url = episodeData.downloadURL;
-  const shiurId = episodeData.shiurId ?? episode.shiurId;
   const filename = sanitizeFilename(episode.title) + ".mp3";
 
   // 2a. Local download — proxy-stream MP3 directly to the browser (no memory buffer)

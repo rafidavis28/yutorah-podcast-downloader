@@ -4,6 +4,7 @@ export interface Episode {
   title: string;
   pageUrl: string;
   shiurId: string | null;
+  audioUrl: string | null;
 }
 
 /**
@@ -12,7 +13,7 @@ export interface Episode {
  */
 export async function fetchRSSFeed(
   rssUrl: string
-): Promise<{ title: string; link: string }[]> {
+): Promise<{ title: string; link: string; enclosureUrl: string | null }[]> {
   const normalizedRssUrl = normalizeYutorahUrl(rssUrl);
 
   const response = await fetch(normalizedRssUrl, {
@@ -38,10 +39,14 @@ export async function fetchRSSFeed(
   const items: Record<string, unknown>[] =
     parsed?.rss?.channel?.item ?? [];
 
-  const episodes: { title: string; link: string }[] = [];
+  const episodes: { title: string; link: string; enclosureUrl: string | null }[] =
+    [];
   for (const item of items) {
     const titleRaw = item.title as string | { __cdata: string } | undefined;
     const linkRaw = item.link as string | { __cdata: string } | undefined;
+    const enclosureRaw = item.enclosure as
+      | { "@_url"?: string; "@_type"?: string }
+      | undefined;
 
     const title =
       typeof titleRaw === "object" && titleRaw !== null
@@ -51,11 +56,16 @@ export async function fetchRSSFeed(
       typeof linkRaw === "object" && linkRaw !== null
         ? linkRaw.__cdata
         : (linkRaw ?? "");
+    const enclosureUrl =
+      typeof enclosureRaw?.["@_url"] === "string"
+        ? normalizeYutorahUrl(enclosureRaw["@_url"].trim())
+        : null;
 
     if (link) {
       episodes.push({
         title: title.trim(),
         link: normalizeYutorahUrl(link.trim()),
+        enclosureUrl,
       });
     }
   }
@@ -112,11 +122,12 @@ export function normalizeYutorahUrl(urlText: string): string {
  * Convert raw RSS items to typed Episode objects.
  */
 export function extractEpisodeLinks(
-  items: { title: string; link: string }[]
+  items: { title: string; link: string; enclosureUrl: string | null }[]
 ): Episode[] {
   return items.map((item) => ({
     title: item.title,
     pageUrl: item.link,
     shiurId: extractShiurId(item.link),
+    audioUrl: item.enclosureUrl,
   }));
 }
