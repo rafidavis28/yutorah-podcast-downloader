@@ -12,7 +12,7 @@ export interface Feed {
 export const DEFAULT_FEEDS: Feed[] = [
   {
     name: "Rav Moshe Taragin",
-    url: "http://www.yutorah.org/rss/RssAudioOnly/teacher/80307",
+    url: "https://www.yutorah.org/rss/RssAudioOnly/teacher/80307",
   },
 ];
 
